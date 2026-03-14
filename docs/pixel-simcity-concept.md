@@ -70,8 +70,14 @@ El usuario puede alterar radicalmente el paisaje moviendo las estaciones creadas
 
 ---
 
-## 6. Siguientes Pasos de Implementación (Roadmap Arquitectónico)
-1. Escribir el esqueleto de `city-engine.worker.js`.
-2. Integrar comunicación `postMessage` con un `Float32Array` compartido hacia `color-bg.js` para pintar 10,000 píxeles a 60FPS.
-3. Implementar el algoritmo de "Space Colonization" básico detonado desde las coordenadas de las estaciones del UI.
-4. Mapear contadores demográficos del Worker al `AudioEngine` para regir el volumen granular.
+## 6. Estado Actual de Implementación (V2 Milestone Tracker)
+*Nota: El detalle granular de todas las tareas y fases se encuentra en [pixel-simcity-phases.md](./pixel-simcity-phases.md).*
+
+### ✅ Fases Completadas (Cimientos Estabilizados)
+1. **Fase 1 (Foundation & UX):** Reseteo del proyecto a un baseline estable de V1. Integración de audio personalizado (WAV/Mic). UI mejorada para modo dual (Yamanote vs Creador).
+2. **Fase 2 (Motor Ecosistémico):** Creación del hilo en paralelo (`city-engine.worker.js`) y el motor de renderizado de alta velocidad vía `Float32Array`. Renderizado visual de estaciones plantadas manualmente con colisiones de audio funcionando.
+
+### 🚧 Próximo Horizonte (El Ecosistema)
+1. **Fase 3 (Algoritmos Generativos):** Construcción del *Space Colonization* para generar las ciudades visualmente desde las estaciones, y *Pathfinding* para los caminantes.
+2. **Fase 4 (Traducción Acústica):** Mapeo de densidad peatonal y de tráfico a sintetizadores de audio dinámicos (Granular/Drones).
+3. **Fase 5 (Gameplay y What-Ifs):** Implementación compleja de romper ecosistemas interactuando espacialmente (Drag & Drop de estaciones).
