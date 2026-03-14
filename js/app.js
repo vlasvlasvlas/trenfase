@@ -752,22 +752,6 @@ class App {
     document.getElementById('creation-save-local').addEventListener('click', () => this._saveCreationSceneLocal());
     document.getElementById('creation-load-local').addEventListener('click', () => this._loadCreationSceneLocal());
 
-    // === Environment (Walls) controls ===
-    const btnSolid = document.getElementById('wall-type-solid');
-    const btnDashed = document.getElementById('wall-type-dashed');
-    
-    btnSolid.addEventListener('click', () => {
-      this.bg.setWallType('solid');
-      btnSolid.classList.add('btn--active');
-      btnDashed.classList.remove('btn--active');
-    });
-    
-    btnDashed.addEventListener('click', () => {
-      this.bg.setWallType('dashed');
-      btnDashed.classList.add('btn--active');
-      btnSolid.classList.remove('btn--active');
-    });
-    
     document.getElementById('btn-clear-walls').addEventListener('click', () => {
       this.bg.clearWalls();
     });
@@ -841,33 +825,86 @@ class App {
       return;
     }
 
-    this.creation.entities.forEach((entity) => {
-      const row = document.createElement('button');
-      row.className = 'creation-entity-item btn btn--small';
-      if (entity.id === this.creation.selectedId) row.classList.add('creation-entity-item--selected');
-
+    this.creation.entities.forEach((entity, index) => {
+      const isSelected = entity.id === this.creation.selectedId;
+      const accordion = document.createElement('div');
+      accordion.className = 'accordion';
+      if (isSelected) accordion.classList.add('open');
+      
       let meta = '';
       if (entity.type === 'line') meta = entity.line.dashed ? 'dashed' : 'solid';
       if (entity.type === 'rotating_line') meta = `${Math.round(entity.rotating.angularSpeed)} deg/s`;
       if (entity.type === 'walker') meta = `${entity.walker.state} • wp:${entity.walker.waypoints.length}`;
 
-      row.innerHTML = `
-        <span>#${entity.id} ${entity.type}</span>
-        <span>${meta}</span>
+      // Different color representations based on entity type
+      let typeColor = '#f5f0e1';
+      if (entity.type === 'line') typeColor = entity.line.color;
+      else if (entity.type === 'rotating_line') typeColor = entity.rotating.color;
+      else if (entity.type === 'walker') typeColor = entity.light.enabled ? entity.light.color : '#aaaaaa';
+
+      accordion.innerHTML = `
+        <div class="accordion__header" ${isSelected ? 'style="background:rgba(255,255,255,0.08);"' : ''}>
+          <div class="accordion__title">
+            <div class="train-item__color" style="background: ${typeColor}"></div>
+            <span>${entity.type} #${entity.id}</span>
+            <span style="font-size:0.65rem; color:var(--color-text-dim); margin-left: 6px;">${meta}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="btn btn--small creation-entity-select-btn" data-id="${entity.id}">Sel</button>
+            <span class="accordion__icon">▼</span>
+          </div>
+        </div>
+        <div class="accordion__body" id="accordion-body-entity-${entity.id}">
+          <!-- Inspector content gets attached here when selected -->
+        </div>
       `;
-      row.addEventListener('click', () => this._selectCreationEntity(entity.id));
-      list.appendChild(row);
+
+      list.appendChild(accordion);
+
+      const header = accordion.querySelector('.accordion__header');
+      const selBtn = accordion.querySelector('.creation-entity-select-btn');
+
+      // Toggling accordion also selects it
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.btn')) return; // handled by selBtn
+        if (this.creation.selectedId !== entity.id) {
+          this._selectCreationEntity(entity.id);
+        } else {
+          accordion.classList.toggle('open');
+        }
+      });
+
+      selBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._selectCreationEntity(entity.id);
+        accordion.classList.add('open');
+      });
+      
+      // If this is the selected entity, immediately attach the inspector here
+      if (isSelected) {
+        this._activeAccordionBodyId = `accordion-body-entity-${entity.id}`;
+      }
     });
   }
 
   _renderCreationInspector() {
-    const container = document.getElementById('creation-inspector');
+    // If we're using accordion, the container might be the accordion body
+    let container = document.getElementById('creation-inspector');
+    
+    // Instead of rendering floating inspector, try to render directly inside the active accordion
+    if (this._activeAccordionBodyId) {
+      const accBody = document.getElementById(this._activeAccordionBodyId);
+      if (accBody) container = accBody;
+    }
+
     if (!container) return;
     container.innerHTML = '';
 
     const entity = this._getSelectedCreationEntity();
     if (!entity) {
-      container.innerHTML = '<div class="creation-inspector__empty">Select an entity to inspect and edit.</div>';
+      if (container.id === 'creation-inspector') {
+        container.innerHTML = '<div class="creation-inspector__empty">Select an entity to inspect and edit.</div>';
+      }
       return;
     }
 
@@ -1743,70 +1780,88 @@ class App {
 
     trains.forEach((train, i) => {
       this._normalizeTrainSoundConfig(train);
-      const item = document.createElement('div');
-      item.className = 'train-item';
+      const accordion = document.createElement('div');
+      accordion.className = 'accordion';
+      // keep the first one open
+      if (i === 0) accordion.classList.add('open');
 
-      item.innerHTML = `
-        <div class="train-item__color" style="background: ${train.color}"></div>
-        <span class="train-item__id">T${i + 1}</span>
-        
-        <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
-          <div class="slider-row">
-            <label style="min-width:30px;">Spd</label>
-            <input type="range" class="train-speed" data-train-id="${train.id}" min="${this.speedSliderMin}" max="${this.speedSliderMax}" value="${this._uiSpeedToSlider(this._actualSpeedToUi(train.speed))}" style="flex:1;">
-            <span class="value train-speed-val" style="min-width:30px;">${this._actualSpeedToUi(train.speed).toFixed(2)}</span>
+      accordion.innerHTML = `
+        <div class="accordion__header">
+          <div class="accordion__title">
+            <div class="train-item__color" style="background: ${train.color}"></div>
+            <span>Train ${i + 1}</span>
           </div>
-          <div class="slider-row">
-            <label style="min-width:30px;">Lit</label>
-            <input type="range" class="train-light-int" min="0" max="100" value="${Math.round(train.lightIntensity * 100)}" style="flex:1;">
-            <span class="value train-light-int-val" style="min-width:30px;">${train.lightIntensity.toFixed(2)}</span>
-          </div>
-          <div class="slider-row">
-            <label style="min-width:30px;">Rad</label>
-            <input type="range" class="train-light-rad" min="50" max="1000" value="${Math.round(train.lightRadius)}" style="flex:1;">
-            <span class="value train-light-rad-val" style="min-width:30px;">${Math.round(train.lightRadius)}</span>
-          </div>
-          <div class="slider-row">
-            <label style="min-width:30px;">Snd</label>
-            <button class="btn btn--small train-sound-toggle" title="Toggle train sound">${train.soundEnabled ? 'On' : 'Off'}</button>
-          </div>
-          <div class="slider-row">
-            <label style="min-width:30px;">Vol</label>
-            <input type="range" class="train-sound-vol" min="0" max="30" value="${Math.round(train.soundVolume * 100)}" style="flex:1;">
-            <span class="value train-sound-vol-val" style="min-width:30px;">${train.soundVolume.toFixed(2)}</span>
-          </div>
-          <div class="slider-row">
-            <label style="min-width:30px;">Frq</label>
-            <input type="range" class="train-sound-freq" min="20" max="200" value="${Math.round(train.soundFrequency)}" style="flex:1;">
-            <span class="value train-sound-freq-val" style="min-width:42px;">${Math.round(train.soundFrequency)}Hz</span>
-          </div>
-          <div class="slider-row">
-            <label style="min-width:30px;">Rate</label>
-            <input type="range" class="train-sound-rate" min="10" max="400" value="${Math.round(train.soundRate * 100)}" style="flex:1;">
-            <span class="value train-sound-rate-val" style="min-width:42px;">${train.soundRate.toFixed(2)}x</span>
-          </div>
-          <div class="slider-row">
-            <label style="min-width:30px;">Tone</label>
-            <input type="range" class="train-sound-tone" min="0" max="100" value="${Math.round(train.soundTone * 100)}" style="flex:1;">
-            <span class="value train-sound-tone-val" style="min-width:42px;">${train.soundTone.toFixed(2)}</span>
-          </div>
+          <span class="accordion__icon">▼</span>
         </div>
-        
-        <div style="display:flex; flex-direction:column; gap:4px;">
-          <button class="btn btn--small train-dir" data-train-id="${train.id}" title="Toggle direction">
-            ${train.direction === 1 ? '→' : '←'}
-          </button>
-          <button class="btn btn--small train-remove" data-train-id="${train.id}" title="Remove">✕</button>
+        <div class="accordion__body">
+          <div class="train-item" style="border:none; padding:0;">
+            <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+              <div class="slider-row">
+                <label style="min-width:30px;">Spd</label>
+                <input type="range" class="train-speed" data-train-id="${train.id}" min="${this.speedSliderMin}" max="${this.speedSliderMax}" value="${this._uiSpeedToSlider(this._actualSpeedToUi(train.speed))}" style="flex:1;">
+                <span class="value train-speed-val" style="min-width:30px;">${this._actualSpeedToUi(train.speed).toFixed(2)}</span>
+              </div>
+              <div class="slider-row">
+                <label style="min-width:30px;">Lit</label>
+                <input type="range" class="train-light-int" min="0" max="100" value="${Math.round(train.lightIntensity * 100)}" style="flex:1;">
+                <span class="value train-light-int-val" style="min-width:30px;">${train.lightIntensity.toFixed(2)}</span>
+              </div>
+              <div class="slider-row">
+                <label style="min-width:30px;">Rad</label>
+                <input type="range" class="train-light-rad" min="50" max="1000" value="${Math.round(train.lightRadius)}" style="flex:1;">
+                <span class="value train-light-rad-val" style="min-width:30px;">${Math.round(train.lightRadius)}</span>
+              </div>
+              <div class="slider-row">
+                <label style="min-width:30px;">Snd</label>
+                <button class="btn btn--small train-sound-toggle" title="Toggle train sound">
+                  ${(train.soundEnabled && train.droneEnabled) ? 'C+D' : (train.soundEnabled ? 'Clck' : (train.droneEnabled ? 'Drn' : 'Off'))}
+                </button>
+              </div>
+              <div class="slider-row">
+                <label style="min-width:30px;">Vol</label>
+                <input type="range" class="train-sound-vol" min="0" max="30" value="${Math.round(train.soundVolume * 100)}" style="flex:1;">
+                <span class="value train-sound-vol-val" style="min-width:30px;">${train.soundVolume.toFixed(2)}</span>
+              </div>
+              <div class="slider-row">
+                <label style="min-width:30px;">Frq</label>
+                <input type="range" class="train-sound-freq" min="20" max="200" value="${Math.round(train.soundFrequency)}" style="flex:1;">
+                <span class="value train-sound-freq-val" style="min-width:42px;">${Math.round(train.soundFrequency)}Hz</span>
+              </div>
+              <div class="slider-row">
+                <label style="min-width:30px;">Rate</label>
+                <input type="range" class="train-sound-rate" min="10" max="400" value="${Math.round(train.soundRate * 100)}" style="flex:1;">
+                <span class="value train-sound-rate-val" style="min-width:42px;">${train.soundRate.toFixed(2)}x</span>
+              </div>
+              <div class="slider-row">
+                <label style="min-width:30px;">Tone</label>
+                <input type="range" class="train-sound-tone" min="0" max="100" value="${Math.round(train.soundTone * 100)}" style="flex:1;">
+                <span class="value train-sound-tone-val" style="min-width:42px;">${train.soundTone.toFixed(2)}</span>
+              </div>
+            </div>
+            
+            <div style="display:flex; flex-direction:column; gap:4px;">
+              <button class="btn btn--small train-dir" data-train-id="${train.id}" title="Toggle direction">
+                ${train.direction === 1 ? '→' : '←'}
+              </button>
+              <button class="btn btn--small train-remove" data-train-id="${train.id}" title="Remove">✕</button>
+            </div>
+          </div>
         </div>
       `;
 
-      container.appendChild(item);
+      container.appendChild(accordion);
+
+      // Accordion toggle
+      const header = accordion.querySelector('.accordion__header');
+      header.addEventListener('click', () => {
+        accordion.classList.toggle('open');
+      });
 
       // Per-train speed
-      item.querySelector('.train-speed').addEventListener('input', (e) => {
+      accordion.querySelector('.train-speed').addEventListener('input', (e) => {
         const uiSpeed = this._sliderToUiSpeed(parseFloat(e.target.value));
         train.speed = this._uiSpeedToActual(uiSpeed);
-        item.querySelector('.train-speed-val').textContent = uiSpeed.toFixed(2);
+        accordion.querySelector('.train-speed-val').textContent = uiSpeed.toFixed(2);
         
         // Keep synced with focused panel if open
         if (this.selectedTrain && this.selectedTrain.id === train.id) {
@@ -1815,33 +1870,47 @@ class App {
         }
       });
 
-      // Per-train light intensity
-      item.querySelector('.train-light-int').addEventListener('input', (e) => {
+      accordion.querySelector('.train-light-int').addEventListener('input', (e) => {
         train.lightIntensity = e.target.value / 100;
-        item.querySelector('.train-light-int-val').textContent = train.lightIntensity.toFixed(2);
+        accordion.querySelector('.train-light-int-val').textContent = train.lightIntensity.toFixed(2);
       });
 
       // Per-train light radius
-      item.querySelector('.train-light-rad').addEventListener('input', (e) => {
+      accordion.querySelector('.train-light-rad').addEventListener('input', (e) => {
         train.lightRadius = parseFloat(e.target.value);
-        item.querySelector('.train-light-rad-val').textContent = Math.round(train.lightRadius);
+        accordion.querySelector('.train-light-rad-val').textContent = Math.round(train.lightRadius);
       });
 
       // Per-train sound toggle
-      item.querySelector('.train-sound-toggle').addEventListener('click', () => {
+      accordion.querySelector('.train-sound-toggle').addEventListener('click', (e) => {
         this._normalizeTrainSoundConfig(train);
-        train.soundEnabled = !train.soundEnabled;
-        item.querySelector('.train-sound-toggle').textContent = train.soundEnabled ? 'On' : 'Off';
+        // Toggle Clack Only -> Drone Only -> Both -> Off using modulo state
+        let state = 0;
+        if (train.soundEnabled && !train.droneEnabled) state = 1;
+        else if (!train.soundEnabled && train.droneEnabled) state = 2;
+        else if (train.soundEnabled && train.droneEnabled) state = 3;
+
+        state = (state + 1) % 4;
+        
+        train.soundEnabled = (state === 1 || state === 3);
+        train.droneEnabled = (state === 2 || state === 3);
+
+        if (!train.droneEnabled) {
+          this.audio.removeTrainDrone(train.id);
+        }
+
+        e.target.textContent = (train.soundEnabled && train.droneEnabled) ? 'C+D' : (train.soundEnabled ? 'Clck' : (train.droneEnabled ? 'Drn' : 'Off'));
+        
         if (this.selectedTrain && this.selectedTrain.id === train.id) {
           this._updateTrainSoundButton(train);
         }
       });
 
       // Per-train sound volume
-      item.querySelector('.train-sound-vol').addEventListener('input', (e) => {
+      accordion.querySelector('.train-sound-vol').addEventListener('input', (e) => {
         this._normalizeTrainSoundConfig(train);
         train.soundVolume = Math.max(0, Math.min(0.3, e.target.value / 100));
-        item.querySelector('.train-sound-vol-val').textContent = train.soundVolume.toFixed(2);
+        accordion.querySelector('.train-sound-vol-val').textContent = train.soundVolume.toFixed(2);
         if (this.selectedTrain && this.selectedTrain.id === train.id) {
           document.getElementById('train-edit-snd-vol').value = e.target.value;
           document.getElementById('train-edit-snd-vol-val').textContent = train.soundVolume.toFixed(2);
@@ -1849,10 +1918,10 @@ class App {
       });
 
       // Per-train sound frequency
-      item.querySelector('.train-sound-freq').addEventListener('input', (e) => {
+      accordion.querySelector('.train-sound-freq').addEventListener('input', (e) => {
         this._normalizeTrainSoundConfig(train);
         train.soundFrequency = Math.max(20, Math.min(200, parseFloat(e.target.value)));
-        item.querySelector('.train-sound-freq-val').textContent = `${Math.round(train.soundFrequency)}Hz`;
+        accordion.querySelector('.train-sound-freq-val').textContent = `${Math.round(train.soundFrequency)}Hz`;
         if (this.selectedTrain && this.selectedTrain.id === train.id) {
           document.getElementById('train-edit-snd-freq').value = e.target.value;
           document.getElementById('train-edit-snd-freq-val').textContent = `${Math.round(train.soundFrequency)}Hz`;
@@ -1860,10 +1929,10 @@ class App {
       });
 
       // Per-train sound rate
-      item.querySelector('.train-sound-rate').addEventListener('input', (e) => {
+      accordion.querySelector('.train-sound-rate').addEventListener('input', (e) => {
         this._normalizeTrainSoundConfig(train);
         train.soundRate = Math.max(0.1, Math.min(4.0, parseFloat(e.target.value) / 100));
-        item.querySelector('.train-sound-rate-val').textContent = `${train.soundRate.toFixed(2)}x`;
+        accordion.querySelector('.train-sound-rate-val').textContent = `${train.soundRate.toFixed(2)}x`;
         if (this.selectedTrain && this.selectedTrain.id === train.id) {
           document.getElementById('train-edit-snd-rate').value = e.target.value;
           document.getElementById('train-edit-snd-rate-val').textContent = `${train.soundRate.toFixed(2)}x`;
@@ -1871,10 +1940,10 @@ class App {
       });
 
       // Per-train sound tone/texture
-      item.querySelector('.train-sound-tone').addEventListener('input', (e) => {
+      accordion.querySelector('.train-sound-tone').addEventListener('input', (e) => {
         this._normalizeTrainSoundConfig(train);
         train.soundTone = Math.max(0, Math.min(1, parseFloat(e.target.value) / 100));
-        item.querySelector('.train-sound-tone-val').textContent = train.soundTone.toFixed(2);
+        accordion.querySelector('.train-sound-tone-val').textContent = train.soundTone.toFixed(2);
         if (this.selectedTrain && this.selectedTrain.id === train.id) {
           document.getElementById('train-edit-snd-tone').value = e.target.value;
           document.getElementById('train-edit-snd-tone-val').textContent = train.soundTone.toFixed(2);
@@ -1882,22 +1951,25 @@ class App {
       });
 
       // Per-train direction
-      item.querySelector('.train-dir').addEventListener('click', () => {
+      accordion.querySelector('.train-dir').addEventListener('click', (e) => {
         train.direction *= -1;
         train.triggeredStations.clear();
-        item.querySelector('.train-dir').textContent = train.direction === 1 ? '→' : '←';
+        e.target.textContent = train.direction === 1 ? '→' : '←';
+        
         if (this.selectedTrain && this.selectedTrain.id === train.id) {
           document.getElementById('train-edit-dir').textContent = train.direction === 1 ? 'Forward →' : '← Reverse';
         }
       });
 
-      // Per-train remove
-      item.querySelector('.train-remove').addEventListener('click', () => {
-        const removedSelected = this.selectedTrain && this.selectedTrain.id === train.id;
+      // Remove train
+      accordion.querySelector('.train-remove').addEventListener('click', () => {
+        this.audio.removeTrainDrone(train.id);
         this.trains.removeTrain(train.id);
-        this._renderTrainControls();
-        if (removedSelected) {
+        
+        if (this.selectedTrain && this.selectedTrain.id === train.id) {
           this._closePanel();
+        } else {
+          this._renderTrainControls();
         }
       });
     });

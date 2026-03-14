@@ -310,17 +310,7 @@
             </div>
 
             <div class="control-group" style="margin-top:14px;">
-              <span class="control-group__label">🧱 Walls (Shift+Drag)</span>
-              <div class="slider-row">
-                <label>Wall Type</label>
-                <div class="btn-row" style="flex:1;">
-                  <button class="btn btn--small btn--active" id="wall-type-solid" style="flex:1;">Solid</button>
-                  <button class="btn btn--small" id="wall-type-dashed" style="flex:1;">Dashed</button>
-                </div>
-              </div>
-              <div class="slider-row">
-                <button class="btn btn--small" id="btn-clear-walls" style="width:100%; border-color:var(--color-ring-track); color:var(--color-ring-track);">Clear All Walls</button>
-              </div>
+              <button class="btn btn--small" id="btn-clear-walls" style="width:100%; border-color:var(--color-ring-track); color:var(--color-ring-track);">Clear Background Walls</button>
             </div>
 
             <div class="control-group" style="margin-top:14px;">
@@ -347,12 +337,9 @@
 
             <div class="control-group" style="margin-top:14px;">
               <span class="control-group__label">Entidades</span>
+              <!-- We use creation-entity-list to hold the accordions, and if none are selected, creation-inspector can serve as a fallback or be omitted -->
               <div class="creation-entity-list" id="creation-entity-list"></div>
-            </div>
-
-            <div class="control-group" style="margin-top:14px;">
-              <span class="control-group__label">Inspector</span>
-              <div class="creation-inspector" id="creation-inspector"></div>
+              <div id="creation-inspector" style="display:none;"></div>
             </div>
 
             <div class="control-group" style="margin-top:14px;">

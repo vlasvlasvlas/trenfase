@@ -621,6 +621,63 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 2px 6px;
 }
 
+/* === Accordion Styles === */
+.accordion {
+  border: 1px solid var(--border-color);
+  margin-bottom: 8px;
+  border-radius: var(--border-radius);
+  overflow: hidden;
+}
+
+.accordion__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid transparent;
+}
+
+.accordion__header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.accordion.open .accordion__header {
+  border-bottom-color: var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.accordion__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-primary);
+  font-size: 0.8rem;
+  color: var(--color-text);
+}
+
+.accordion__icon {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.accordion.open .accordion__icon {
+  transform: rotate(180deg);
+}
+
+.accordion__body {
+  display: none;
+  padding: 12px;
+  background: var(--color-panel-bg);
+}
+
+.accordion.open .accordion__body {
+  display: block;
+}
+
 /* === Master controls bottom bar === */
 .master-bar {
   position: absolute;
