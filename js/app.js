@@ -155,6 +155,10 @@ class App {
 
     if (this.mode === 'creator') {
       this._initCityWorker();
+      
+      // Auto-open Creation tools to guide the user
+      this._openSettingsPanel();
+      this._setMenuTab('creation');
     }
 
     this.running = true;
@@ -1518,7 +1522,7 @@ class App {
       }
       this.menuTab = 'station';
       this._renderMenu();
-      this._openPanel();
+      this._openStationPanel(newStation); // Open the specific station properties panel
       
       this.creation.isPointerDown = false;
       this._renderCreationUI();

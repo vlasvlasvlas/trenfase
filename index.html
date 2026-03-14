@@ -52,6 +52,9 @@
         <div class="header__subtitle">山手線サウンドマシン</div>
       </div>
       <div class="header__controls">
+        <button class="btn btn--small" id="btn-add-train" title="Add Train">+ 🚃 Nuevo Tren</button>
+        <button class="btn btn--small" id="btn-fullscreen" title="Toggle Fullscreen">⛶ Fullscreen</button>
+        <span class="master-bar__label" id="station-count" style="margin: 0 10px;">30/30</span>
         <button class="btn btn--small" id="btn-controls" title="Main Menu">☰ Menu</button>
       </div>
     </header>
@@ -61,20 +64,6 @@
       <canvas id="bg-canvas"></canvas>
       <div class="ring-container" id="ring-container"></div>
     </main>
-
-    <!-- Master Bar (bottom) -->
-    <div class="master-bar">
-      <div class="master-bar__section">
-        <button class="btn btn--small" id="btn-add-train" title="Add Train">+ 🚃 Nuevo Tren</button>
-      </div>
-      <div class="master-bar__section">
-        <button class="btn btn--small" id="btn-fullscreen" title="Toggle Fullscreen">⛶ Fullscreen</button>
-      </div>
-      <div class="spacer"></div>
-      <div class="master-bar__section">
-        <span class="master-bar__label" id="station-count">30/30</span>
-      </div>
-    </div>
 
     <!-- Side Panel (Station Editor + Trains + Drone) -->
     <div class="panel" id="station-panel">

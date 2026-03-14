@@ -706,39 +706,3 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: pointer;
 }
 
-/* === Master controls bottom bar === */
-.master-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 24px;
-  background: var(--color-panel-bg);
-  border-top: var(--border-width) var(--border-style) var(--border-color);
-  z-index: 10;
-}
-
-.master-bar__section {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.master-bar__label {
-  font-size: 0.6rem;
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-family: var(--font-secondary);
-}
-
-.master-bar input[type="range"] {
-  width: 100px;
-}
-
-.spacer {
-  flex: 1;
-}
