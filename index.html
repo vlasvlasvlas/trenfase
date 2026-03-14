@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TRENFASE — 山手線サウンドマシン</title>
+  <meta name="description" content="TRENFASE: Experimental circular sound sequencer using Yamanote Line departure melodies">
+
+  <link rel="stylesheet" href="css/themes/60s.css">
+  <link rel="stylesheet" href="css/base.css">
+</head>
+<body data-decade="60s">
+
+  <!-- SVG Filters -->
+  <svg class="svg-filters" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Loading Screen -->
+  <div class="loading" id="loading-screen">
+    <div class="loading__title">TRENFASE</div>
+    <div class="loading__subtitle">山手線サウンドマシン</div>
+    <div class="loading__progress">
+      <div class="loading__bar" id="loading-bar"></div>
+    </div>
+    <button class="btn loading__start" id="start-btn">出発進行</button>
+  </div>
+
+  <!-- Main App -->
+  <div class="app" id="app" style="display:none;">
+
+    <!-- Header -->
+    <header class="header">
+      <div>
+        <h1 class="header__title">TRENFASE</h1>
+        <div class="header__subtitle">山手線サウンドマシン</div>
+      </div>
+      <div class="header__controls">
+        <button class="btn btn--small" id="btn-controls" title="Global Settings">⚙️ Settings</button>
+      </div>
+    </header>
+
+    <!-- Stage -->
+    <main class="stage">
+      <canvas id="bg-canvas"></canvas>
+      <div class="ring-container" id="ring-container"></div>
+    </main>
+
+    <!-- Master Bar (bottom) -->
+    <div class="master-bar">
+      <div class="master-bar__section">
+        <span class="master-bar__label">Master</span>
+        <input type="range" id="master-vol" min="0" max="100" value="80" title="Master Volume">
+      </div>
+      <div class="master-bar__section">
+        <button class="btn btn--small" id="btn-play" title="Start/Stop">▶</button>
+      </div>
+      <div class="master-bar__section">
+        <button class="btn btn--small" id="btn-add-train" title="Add Train">+ 🚃</button>
+        <button class="btn btn--small" id="btn-remove-train" title="Remove Train">− 🚃</button>
+      </div>
+      <div class="master-bar__section">
+        <span class="master-bar__label">Speed</span>
+        <input type="range" id="speed-slider" min="1" max="100" value="30" title="Global Speed">
+        <span class="value" id="speed-value">0.06</span>
+      </div>
+      <div class="master-bar__section">
+        <button class="btn btn--small" id="btn-direction" title="Toggle Direction">CW →</button>
+      </div>
+      <div class="master-bar__section">
+        <button class="btn btn--small" id="btn-drone" title="Toggle Drone">🔊 Drone</button>
+      </div>
+      <div class="spacer"></div>
+      <div class="master-bar__section">
+        <span class="master-bar__label" id="station-count">30/30</span>
+      </div>
+    </div>
+
+    <!-- Side Panel (Station Editor + Trains + Drone) -->
+    <div class="panel" id="station-panel">
+      <div class="panel__header">
+        <div class="station-info">
+          <span class="station-info__jp" id="panel-station-jp">TRENFASE</span>
+          <span class="station-info__en" id="panel-station-en"></span>
+          <span class="station-info__code" id="panel-station-code"></span>
+        </div>
+        <button class="panel__close" id="panel-close">✕</button>
+      </div>
+      <div class="panel__body">
+
+        <!-- STATION VIEW -->
+        <div id="panel-view-station">
+          <!-- Station State -->
+          <div class="control-group" id="section-station-state">
+            <span class="control-group__label">State</span>
+            <div class="btn-row">
+              <button class="btn btn--small" id="btn-state-active">Active</button>
+              <button class="btn btn--small" id="btn-state-inactive">Off</button>
+              <button class="btn btn--small" id="btn-state-ghost">Ghost</button>
+            </div>
+          </div>
+
+          <!-- Trim -->
+          <div class="control-group" id="section-trim" style="margin-top:20px;">
+            <span class="control-group__label">Trim</span>
+            <div id="trim-editor"></div>
+          </div>
+
+          <!-- Volume & Pitch -->
+          <div class="control-group" id="section-vol-pitch" style="margin-top:20px;">
+            <span class="control-group__label">Volume</span>
+            <div class="slider-row">
+              <input type="range" id="station-volume" min="0" max="100" value="100">
+              <span class="value" id="vol-value">1.0</span>
+            </div>
+            <span class="control-group__label">Pitch</span>
+            <div class="slider-row">
+              <input type="range" id="station-pitch" min="25" max="200" value="100">
+              <span class="value" id="pitch-value">1.0</span>
+            </div>
+          </div>
+
+          <!-- Per-station FX: Delay -->
+          <div class="control-group" id="section-fx-delay" style="margin-top:20px;">
+            <span class="control-group__label">Delay</span>
+            <div class="slider-row">
+              <label>Time</label>
+              <input type="range" id="fx-delay-time" min="0" max="200" value="0">
+              <span class="value" id="fx-delay-time-val">0.00s</span>
+            </div>
+            <div class="slider-row">
+              <label>Feedback</label>
+              <input type="range" id="fx-delay-feedback" min="0" max="90" value="0">
+              <span class="value" id="fx-delay-feedback-val">0.0</span>
+            </div>
+            <div class="slider-row">
+              <label>Wet</label>
+              <input type="range" id="fx-delay-wet" min="0" max="100" value="0">
+              <span class="value" id="fx-delay-wet-val">0.0</span>
+            </div>
+          </div>
+
+          <!-- Per-station FX: Filter -->
+          <div class="control-group" id="section-fx-filter" style="margin-top:20px;">
+            <span class="control-group__label">Filter (lowpass)</span>
+            <div class="slider-row">
+              <label>Freq</label>
+              <input type="range" id="fx-filter-freq" min="0" max="100" value="100">
+              <span class="value" id="fx-filter-freq-val">20k</span>
+            </div>
+            <div class="slider-row">
+              <label>Q</label>
+              <input type="range" id="fx-filter-q" min="1" max="150" value="10">
+              <span class="value" id="fx-filter-q-val">1.0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- TRAIN VIEW -->
+        <div id="panel-view-train" style="display:none;">
+          <div class="control-group">
+            <span class="control-group__label">Train Controls</span>
+            
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Direction</label>
+              <button class="btn btn--small" id="train-edit-dir" style="width:100%;">Forward →</button>
+            </div>
+            
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Speed</label>
+              <input type="range" id="train-edit-spd" min="1" max="200" value="50">
+              <span class="value" id="train-edit-spd-val">1.0</span>
+            </div>
+            
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Light Color</label>
+              <input type="color" id="train-edit-col" value="#C41E3A" style="flex:1; height:30px; cursor:pointer;">
+            </div>
+
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Light Dir</label>
+              <select id="train-edit-light-type" style="flex:1; padding:2px;">
+                <option value="forward">Forward (Faro)</option>
+                <option value="backward">Backward (Faro)</option>
+                <option value="omni">Omni (Halo 360)</option>
+              </select>
+            </div>
+            
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Light Int</label>
+              <input type="range" id="train-edit-int" min="0" max="100" value="60">
+              <span class="value" id="train-edit-int-val">0.60</span>
+            </div>
+            
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Light Rad</label>
+              <input type="range" id="train-edit-rad" min="50" max="1000" value="300">
+              <span class="value" id="train-edit-rad-val">300</span>
+            </div>
+            
+            <div class="slider-row" style="margin-top:20px;">
+              <button class="btn btn--small" id="train-edit-remove" style="width:100%; border-color:var(--color-ring-track); color:var(--color-ring-track);">Remove Train ✕</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Separator -->
+        <hr style="border-color: var(--border-color); border-style: solid; opacity: 0.3; margin: 20px 0;">
+
+        <!-- SETTINGS VIEW (Drone & Global) -->
+        <div id="panel-view-settings" style="display:none;">
+          <div class="control-group">
+            <span class="control-group__label">Global Settings</span>
+          </div>
+
+          <!-- Drone Controls -->
+          <div class="control-group" style="margin-top:20px;">
+            <span class="control-group__label">🔊 Drone (train ambience)</span>
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Vol</label>
+              <input type="range" id="drone-vol" min="0" max="30" value="8">
+              <span class="value" id="drone-vol-val">0.08</span>
+            </div>
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Freq</label>
+              <input type="range" id="drone-freq" min="20" max="200" value="55">
+              <span class="value" id="drone-freq-val">55Hz</span>
+            </div>
+          </div>
+
+          <!-- Separator -->
+          <hr style="border-color: var(--border-color); border-style: solid; opacity: 0.3; margin: 20px 0;">
+
+          <!-- GLOBAL TRAIN LIST -->
+          <div class="control-group" id="panel-view-global-trains">
+            <span class="control-group__label">🚃 Master Train Controls</span>
+            <button class="btn btn--small" id="btn-add-train-panel" style="margin-top:5px; width:100%;">+ 🚃 Add New Train</button>
+            <div id="train-controls-list" style="margin-top:10px;">
+              <!-- Dynamically populated per-train controls -->
+            </div>
+          </div>
+
+          <!-- Separator -->
+          <hr style="border-color: var(--border-color); border-style: solid; opacity: 0.3; margin: 20px 0;">
+
+          <!-- Environment (Walls) -->
+          <div class="control-group">
+            <span class="control-group__label">🧱 Environment (Shift+Drag)</span>
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Wall Type</label>
+              <div class="btn-row" style="flex:1;">
+                <button class="btn btn--small btn--active" id="wall-type-solid" style="flex:1;">Solid</button>
+                <button class="btn btn--small" id="wall-type-dashed" style="flex:1;">Dashed</button>
+              </div>
+            </div>
+            <div class="slider-row" style="margin-top:10px;">
+              <button class="btn btn--small" id="btn-clear-walls" style="width:100%; border-color:var(--color-ring-track); color:var(--color-ring-track);">Clear All Walls</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

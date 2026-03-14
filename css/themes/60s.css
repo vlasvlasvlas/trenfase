@@ -1,0 +1,72 @@
+/* ============================================
+   TRENFASE — 60s Japan Post-War Theme
+   Variables only — no layout, no structure
+   ============================================ */
+
+:root {
+  /* === Typography === */
+  --font-primary: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  --font-secondary: 'Helvetica Neue', 'Arial', sans-serif;
+  --font-mono: 'Courier New', monospace;
+  --font-size-title: 2.4rem;
+  --font-size-station: 0.72rem;
+  --font-size-label: 0.65rem;
+  --font-size-ui: 0.8rem;
+  --font-weight-title: 700;
+  --font-weight-station: 500;
+  --letter-spacing-title: 0.15em;
+
+  /* === Colors === */
+  --color-bg: #1A1A1A;
+  --color-bg-alt: #0D0D0D;
+  --color-surface: #2A2520;
+  --color-surface-hover: #3A3530;
+  --color-text: #F5F0E1;
+  --color-text-dim: #A09880;
+  --color-text-muted: #605840;
+  --color-accent: #C41E3A;       /* 紅 — Japanese red */
+  --color-accent-hover: #E0253F;
+  --color-gold: #C8A951;
+  --color-ring: #F5F0E1;
+  --color-ring-track: rgba(245, 240, 225, 0.15);
+  --color-station-active: #F5F0E1;
+  --color-station-inactive: #404040;
+  --color-station-ghost: rgba(200, 169, 81, 0.6);
+  --color-station-playing: #C41E3A;
+  --color-train: #C41E3A;
+  --color-panel-bg: rgba(26, 26, 26, 0.95);
+  --color-panel-border: rgba(245, 240, 225, 0.12);
+  --color-slider-track: rgba(245, 240, 225, 0.15);
+  --color-slider-fill: #C41E3A;
+  --color-slider-thumb: #F5F0E1;
+  --color-waveform: rgba(245, 240, 225, 0.5);
+  --color-waveform-selected: #C41E3A;
+  --color-btn-bg: transparent;
+  --color-btn-border: rgba(245, 240, 225, 0.3);
+  --color-btn-text: #F5F0E1;
+  --color-btn-active-bg: #C41E3A;
+  --color-btn-active-text: #F5F0E1;
+
+  /* === Borders & Shapes === */
+  --border-width: 2px;
+  --border-style: solid;
+  --border-radius: 0px;         /* 60s = sharp corners */
+  --border-color: rgba(245, 240, 225, 0.2);
+
+  /* === Shadows === */
+  --shadow-panel: none;
+  --shadow-glow: 0 0 20px rgba(196, 30, 58, 0.3);
+
+  /* === Transitions === */
+  --transition-fast: 150ms ease;
+  --transition-normal: 300ms ease;
+  --transition-slow: 600ms ease;
+
+  /* === Ring specific === */
+  --ring-track-width: 2px;
+  --station-dot-radius: 7px;
+  --train-dot-radius: 11px;
+}
+
+/* === 60s Typography — Google Font Import === */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;500;700&display=swap');
