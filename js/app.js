@@ -11,6 +11,13 @@ import { Ring } from './ring.js';
 import { ColorBackground } from './color-bg.js';
 import { TrimEditor } from './trim-editor.js';
 
+const CITY_MAX_PIXELS = 12000;
+const CITY_FLOATS_PER_PIXEL = 4;
+const CREATOR_PROJECT_LOCAL_KEY = 'trenfase.creator.project.v1';
+const CREATION_SCENE_LOCAL_KEY = 'trenfase.creation.scene.v1';
+const CREATOR_CITIES_INDEX_KEY = 'trenfase.creator.cities.index.v1';
+const CREATOR_CITY_KEY_PREFIX = 'trenfase.creator.city.v1.';
+
 class App {
   constructor() {
     this.audio = new AudioEngine();
@@ -18,15 +25,16 @@ class App {
     this.ring = null;
     this.bg = null;
     this.trimEditor = null;
-    this.trimEditor = null;
     this.stations = []; // Now set based on mode
     this.mode = 'yamanote'; // 'yamanote' | 'creator'
     this.running = false;
+    this.creatorStationCounter = 1;
     
     // Pixel-SimCity Phase 2
     this.cityWorker = null;
     this.cityBuffer = null;
     this.cityPixelsRaw = null; // Float32Array to read from
+    this.cityMetrics = null;
     
     this.lastTime = 0;
     this.selectedStation = null;
@@ -34,7 +42,7 @@ class App {
     this.currentPanelView = null;
     this.menuTab = 'settings';
     this.speedScale = 0.005;
-    this.defaultUiSpeed = 0.25;
+    this.defaultUiSpeed = 0.8;
     this.maxUiSpeed = 10.0;
     this.speedSliderMin = 1;
     this.speedSliderMax = Math.round(this.maxUiSpeed * 100);
@@ -59,6 +67,21 @@ class App {
       dragMoved: false,
       uiRefreshMs: 0,
       maxRotatingRecommended: 8
+    };
+    this.creatorProjectDirty = false;
+    this.creatorAutosaveElapsedMs = 0;
+    this.creatorAutosaveIntervalMs = 1200;
+    this.currentCreatorCityId = null;
+    this.currentCreatorCityName = '';
+    this.growthProfile = 'balanced';
+    this.audioDbPromise = null;
+    this.cityStatusTimer = null;
+    this.gameplay = {
+      score: 0,
+      goal: 'Expandir ciudad',
+      lastState: 'stagnation',
+      lastUpdateMs: 0,
+      events: []
     };
     
     this._onTrainClack = this._onTrainClack.bind(this);
@@ -135,7 +158,13 @@ class App {
     // Init ring (now rounded rectangle)
     this.ring = new Ring('ring-container', this.stations, 
       (station) => this._onStationClick(station),
-      (train) => this._onTrainClick(train)
+      (train) => this._onTrainClick(train),
+      {
+        mode: this.mode,
+        enableStationDragging: this.mode === 'creator',
+        onStationMoved: (station) => this._onCreatorStationMoved(station),
+        onStationDragEnd: (station) => this._onCreatorStationDragEnd(station)
+      }
     );
     this.ring.render();
 
@@ -152,9 +181,16 @@ class App {
     this._setupControls();
     this._setupCreationCanvasEvents();
     this._renderCreationUI();
+    this._updateStationCount();
 
     if (this.mode === 'creator') {
       this._initCityWorker();
+      this._resetGameplay();
+      this._initCreatorCityFromStorage().then(() => {
+        this._refreshCitySelectUI();
+      }).catch((err) => {
+        console.warn('Creator city init failed', err);
+      });
       
       // Auto-open Creation tools to guide the user
       this._openSettingsPanel();
@@ -186,6 +222,16 @@ class App {
     this.trains.updateAll(deltaTime);
     this._updateCreation(deltaTime);
 
+    if (this.mode === 'creator') {
+      this.creatorAutosaveElapsedMs += deltaTime;
+      if (this.creatorProjectDirty && this.creatorAutosaveElapsedMs >= this.creatorAutosaveIntervalMs) {
+        this._saveCreatorProjectLocalInternal();
+        this.creatorProjectDirty = false;
+        this.creatorAutosaveElapsedMs = 0;
+      }
+      this._updateGameplayFromMetrics(deltaTime);
+    }
+
     for (const train of this.trains.getAll()) {
       const trainT = train.angle / 360;
       const trainPos = this.ring._getPointAtT(trainT);
@@ -214,6 +260,7 @@ class App {
     for (const train of this.trains.getAll()) {
       this.audio.updateTrainDrone(train);
     }
+    this.audio.updateCitySound(this.mode === 'creator' ? this.cityMetrics : null);
 
     const analyserData = this.audio.getAnalyserData();
     const trainLights = this.trains.getAll().map(train => {
@@ -253,9 +300,8 @@ class App {
   _initCityWorker() {
     this.cityWorker = new Worker('js/city-engine.worker.js');
     
-    // Create a Shared Memory Buffer (or just Transferable ArrayBuffer)
-    // 10,000 pixels * 4 floats * 4 bytes = 160,000 bytes.
-    this.cityBuffer = new ArrayBuffer(10000 * 4 * 4);
+    // Keep in sync with city-engine.worker.js MAX_PIXELS/FLOATS_PER_PIXEL.
+    this.cityBuffer = new ArrayBuffer(CITY_MAX_PIXELS * CITY_FLOATS_PER_PIXEL * 4);
     
     this.cityWorker.onmessage = (e) => {
       const msg = e.data;
@@ -263,10 +309,11 @@ class App {
         // Worker finished calculation and transferred buffer back
         this.cityBuffer = msg.buffer;
         this.cityPixelsRaw = new Float32Array(this.cityBuffer);
+        this.cityMetrics = msg.metrics || null;
       }
     };
 
-    this.cityWorker.postMessage({ type: 'INIT' });
+    this.cityWorker.postMessage({ type: 'INIT', enablePhysics: true, growthProfile: this.growthProfile });
     this.cityWorker.postMessage({ type: 'START' });
     
     // Sync all existing stations immediately
@@ -277,15 +324,887 @@ class App {
 
   _syncStationToWorker(station) {
     if (!this.cityWorker || !station) return;
+    if (!Number.isFinite(station.x) || !Number.isFinite(station.y)) return;
     this.cityWorker.postMessage({
       type: 'UPDATE_STATION',
       station: {
         id: station.id,
         x: station.x,
         y: station.y,
-        active: station.active
+        active: station.active,
+        ghost: station.ghost,
+        population: Number(station.population || 0),
+        vitality: Number(station.vitality || 0),
+        decayThreshold: Number(station.decayThreshold || 0)
       }
     });
+    this._touchCreatorProject();
+  }
+
+  _removeStationFromWorker(stationId) {
+    if (!this.cityWorker || !stationId) return;
+    this.cityWorker.postMessage({
+      type: 'REMOVE_STATION',
+      stationId
+    });
+    this._touchCreatorProject();
+  }
+
+  _onCreatorStationMoved(station) {
+    if (this.mode !== 'creator') return;
+    this._syncStationToWorker(station);
+    this._relocateTrainsToCurrentTrack();
+    this.ring.updateTrains(this.trains.getAll());
+  }
+
+  _onCreatorStationDragEnd(station) {
+    if (this.mode !== 'creator') return;
+    this._syncStationToWorker(station);
+    this._updateStationCount();
+    this._touchCreatorProject();
+  }
+
+  _touchCreatorProject() {
+    if (this.mode !== 'creator') return;
+    this.creatorProjectDirty = true;
+  }
+
+  _showCreatorStatus(text, tone = 'info') {
+    const el = document.getElementById('creator-city-status');
+    if (!el) return;
+    el.textContent = text || '';
+    if (tone === 'error') {
+      el.style.color = '#ff7a7a';
+    } else if (tone === 'ok') {
+      el.style.color = 'var(--color-success)';
+    } else {
+      el.style.color = 'var(--color-text-dim)';
+    }
+    if (this.cityStatusTimer) clearTimeout(this.cityStatusTimer);
+    this.cityStatusTimer = setTimeout(() => {
+      if (el.textContent === text) el.textContent = '';
+    }, 3500);
+  }
+
+  _slugifyCityName(name) {
+    const clean = String(name || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return clean || `city-${Date.now()}`;
+  }
+
+  _getCityStorageKey(cityId) {
+    return `${CREATOR_CITY_KEY_PREFIX}${cityId}`;
+  }
+
+  _loadCitiesIndex() {
+    try {
+      const raw = localStorage.getItem(CREATOR_CITIES_INDEX_KEY);
+      if (!raw) return { lastCityId: null, cities: [] };
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.cities)) return { lastCityId: null, cities: [] };
+      return {
+        lastCityId: parsed.lastCityId || null,
+        cities: parsed.cities
+          .filter((c) => c && c.id)
+          .map((c) => ({ id: String(c.id), name: String(c.name || c.id), updatedAt: c.updatedAt || null }))
+      };
+    } catch (err) {
+      return { lastCityId: null, cities: [] };
+    }
+  }
+
+  _saveCitiesIndex(index) {
+    localStorage.setItem(CREATOR_CITIES_INDEX_KEY, JSON.stringify(index));
+  }
+
+  _upsertCityIndexEntry(cityId, cityName) {
+    const index = this._loadCitiesIndex();
+    const nowIso = new Date().toISOString();
+    const i = index.cities.findIndex((c) => c.id === cityId);
+    const entry = { id: cityId, name: cityName || cityId, updatedAt: nowIso };
+    if (i >= 0) index.cities[i] = entry;
+    else index.cities.push(entry);
+    index.cities.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    index.lastCityId = cityId;
+    this._saveCitiesIndex(index);
+  }
+
+  _removeCityIndexEntry(cityId) {
+    const index = this._loadCitiesIndex();
+    index.cities = index.cities.filter((c) => c.id !== cityId);
+    if (index.lastCityId === cityId) {
+      index.lastCityId = index.cities[0]?.id || null;
+    }
+    this._saveCitiesIndex(index);
+  }
+
+  _refreshCitySelectUI() {
+    const select = document.getElementById('creator-city-select');
+    const nameInput = document.getElementById('creator-city-name');
+    if (!select) return;
+
+    const index = this._loadCitiesIndex();
+    select.innerHTML = '';
+    if (index.cities.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No hay ciudades guardadas';
+      select.appendChild(opt);
+    } else {
+      const fmt = new Intl.DateTimeFormat('es-AR', {
+        year: '2-digit',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      for (const city of index.cities) {
+        const opt = document.createElement('option');
+        opt.value = city.id;
+        const stamp = city.updatedAt ? fmt.format(new Date(city.updatedAt)) : '--';
+        opt.textContent = `${city.name} (${stamp})`;
+        if (city.id === this.currentCreatorCityId) opt.selected = true;
+        select.appendChild(opt);
+      }
+    }
+    if (nameInput) nameInput.value = this.currentCreatorCityName || '';
+  }
+
+  _createEmptyCreatorProject(name = 'Nueva Ciudad') {
+    this.currentCreatorCityName = name;
+    this.stations = [];
+    this.creation.entities = [];
+    this.creation.nextId = 1;
+    this.creation.selectedId = null;
+    this.creation.performanceMode = 'normal';
+    this.creation.enabled = true;
+    this.creatorStationCounter = 1;
+    for (const train of this.trains.getAll()) {
+      this.audio.removeTrainDrone(train.id);
+    }
+    this.trains.trains = [];
+    this._rebuildCreatorTrackAndRelocateTrains();
+    this._renderCreationUI();
+    this._renderTrainControls();
+    this._updateStationCount();
+    this._restartCityWorker();
+    this._resetGameplay();
+    this._touchCreatorProject();
+  }
+
+  _saveCityById(cityId, cityName = null) {
+    if (!cityId) return false;
+    const name = (cityName || this.currentCreatorCityName || cityId).trim();
+    this.currentCreatorCityId = cityId;
+    this.currentCreatorCityName = name;
+
+    const payload = this._buildCreatorProjectPayload();
+    payload.cityId = cityId;
+    payload.cityName = name;
+
+    try {
+      localStorage.setItem(this._getCityStorageKey(cityId), JSON.stringify(payload));
+      this._upsertCityIndexEntry(cityId, name);
+      localStorage.setItem(CREATOR_PROJECT_LOCAL_KEY, JSON.stringify(payload));
+      this.creatorProjectDirty = false;
+      this.creatorAutosaveElapsedMs = 0;
+      this._refreshCitySelectUI();
+      return true;
+    } catch (err) {
+      console.warn('Unable to save city', err);
+      return false;
+    }
+  }
+
+  async _loadCityById(cityId) {
+    if (!cityId) return false;
+    try {
+      const raw = localStorage.getItem(this._getCityStorageKey(cityId));
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      const applied = this._applyCreatorProjectPayload(data, { restartWorker: true });
+      if (!applied) return false;
+      this.currentCreatorCityId = cityId;
+      this.currentCreatorCityName = data.cityName || data.name || cityId;
+      const index = this._loadCitiesIndex();
+      index.lastCityId = cityId;
+      this._saveCitiesIndex(index);
+      this._refreshCitySelectUI();
+      await this._restoreAllStationCustomAudio();
+      this._showCreatorStatus(`Ciudad cargada: ${this.currentCreatorCityName}`, 'ok');
+      return true;
+    } catch (err) {
+      console.warn('Unable to load city', err);
+      return false;
+    }
+  }
+
+  async _deleteCityById(cityId) {
+    if (!cityId) return false;
+    const key = this._getCityStorageKey(cityId);
+    localStorage.removeItem(key);
+    this._removeCityIndexEntry(cityId);
+    await this._deleteAllAudioForCity(cityId);
+    if (this.currentCreatorCityId === cityId) {
+      const index = this._loadCitiesIndex();
+      if (index.lastCityId) {
+        const loaded = await this._loadCityById(index.lastCityId);
+        if (!loaded) {
+          this.currentCreatorCityId = null;
+          this.currentCreatorCityName = '';
+          this._createEmptyCreatorProject('Nueva Ciudad');
+        }
+      } else {
+        this.currentCreatorCityId = null;
+        this.currentCreatorCityName = '';
+        this._createEmptyCreatorProject('Nueva Ciudad');
+      }
+    }
+    this._refreshCitySelectUI();
+    return true;
+  }
+
+  _renameCityById(cityId, nextName) {
+    if (!cityId || !nextName || !nextName.trim()) return false;
+    const index = this._loadCitiesIndex();
+    const idx = index.cities.findIndex((c) => c.id === cityId);
+    if (idx < 0) return false;
+
+    const name = nextName.trim();
+    index.cities[idx].name = name;
+    index.cities[idx].updatedAt = new Date().toISOString();
+    if (this.currentCreatorCityId === cityId) {
+      this.currentCreatorCityName = name;
+    }
+    this._saveCitiesIndex(index);
+
+    const raw = localStorage.getItem(this._getCityStorageKey(cityId));
+    if (raw) {
+      try {
+        const payload = JSON.parse(raw);
+        payload.cityName = name;
+        localStorage.setItem(this._getCityStorageKey(cityId), JSON.stringify(payload));
+        if (this.currentCreatorCityId === cityId) {
+          localStorage.setItem(CREATOR_PROJECT_LOCAL_KEY, JSON.stringify(payload));
+        }
+      } catch (err) {
+        console.warn('Unable to rename city payload', err);
+      }
+    }
+
+    this._refreshCitySelectUI();
+    return true;
+  }
+
+  async _duplicateCityById(sourceCityId, duplicateName) {
+    if (!sourceCityId) return false;
+    const raw = localStorage.getItem(this._getCityStorageKey(sourceCityId));
+    if (!raw) return false;
+
+    try {
+      const sourcePayload = JSON.parse(raw);
+      const baseName = (duplicateName || `${sourcePayload.cityName || 'Ciudad'} copia`).trim();
+      const newCityId = this._slugifyCityName(`${baseName}-${Date.now()}`);
+      const newPayload = {
+        ...sourcePayload,
+        cityId: newCityId,
+        cityName: baseName,
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem(this._getCityStorageKey(newCityId), JSON.stringify(newPayload));
+      this._upsertCityIndexEntry(newCityId, baseName);
+
+      const stationIds = Array.isArray(sourcePayload.stations)
+        ? sourcePayload.stations.map((s) => s.id).filter(Boolean)
+        : [];
+      for (const stationId of stationIds) {
+        const blob = await this._loadStationAudioBlob(stationId, sourceCityId);
+        if (blob) {
+          await this._saveStationAudioBlob(stationId, blob, newCityId);
+        }
+      }
+
+      this.currentCreatorCityId = newCityId;
+      this.currentCreatorCityName = baseName;
+      this._refreshCitySelectUI();
+      return true;
+    } catch (err) {
+      console.warn('Unable to duplicate city', err);
+      return false;
+    }
+  }
+
+  async _initCreatorCityFromStorage() {
+    const index = this._loadCitiesIndex();
+    if (index.lastCityId) {
+      const ok = await this._loadCityById(index.lastCityId);
+      if (ok) return;
+    }
+    const fallbackLoaded = this._loadCreatorProjectLocal({ silent: true, auto: true });
+    if (fallbackLoaded) {
+      this.currentCreatorCityId = this._slugifyCityName(`city-${Date.now()}`);
+      this.currentCreatorCityName = 'Ciudad Recuperada';
+      this._saveCityById(this.currentCreatorCityId, this.currentCreatorCityName);
+      await this._restoreAllStationCustomAudio();
+      this._showCreatorStatus('Se recupero una ciudad guardada anterior.', 'ok');
+      return;
+    }
+    this.currentCreatorCityId = this._slugifyCityName('nueva-ciudad');
+    this.currentCreatorCityName = 'Nueva Ciudad';
+    this._createEmptyCreatorProject(this.currentCreatorCityName);
+    this._saveCityById(this.currentCreatorCityId, this.currentCreatorCityName);
+  }
+
+  _openAudioDb() {
+    if (this.audioDbPromise) return this.audioDbPromise;
+    this.audioDbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open('trenfase-audio-db', 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('stationAudio')) {
+          db.createObjectStore('stationAudio', { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return this.audioDbPromise;
+  }
+
+  _audioBlobKey(stationId, cityId = null) {
+    const cid = cityId || this.currentCreatorCityId || 'default';
+    return `${cid}::${stationId}`;
+  }
+
+  async _saveStationAudioBlob(stationId, blob, cityId = null) {
+    if (!blob) return;
+    const db = await this._openAudioDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('stationAudio', 'readwrite');
+      const store = tx.objectStore('stationAudio');
+      store.put({ id: this._audioBlobKey(stationId, cityId), blob, updatedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async _loadStationAudioBlob(stationId, cityId = null) {
+    const db = await this._openAudioDb();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('stationAudio', 'readonly');
+      const store = tx.objectStore('stationAudio');
+      const req = store.get(this._audioBlobKey(stationId, cityId));
+      req.onsuccess = () => resolve(req.result?.blob || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async _deleteStationAudioBlob(stationId, cityId = null) {
+    const db = await this._openAudioDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('stationAudio', 'readwrite');
+      const store = tx.objectStore('stationAudio');
+      store.delete(this._audioBlobKey(stationId, cityId));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async _deleteAllAudioForCity(cityId) {
+    if (!cityId) return;
+    const db = await this._openAudioDb();
+    const prefix = `${cityId}::`;
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('stationAudio', 'readwrite');
+      const store = tx.objectStore('stationAudio');
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor) return;
+        if (String(cursor.key).startsWith(prefix)) {
+          cursor.delete();
+        }
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async _clearAllStationAudioBlobs() {
+    const db = await this._openAudioDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('stationAudio', 'readwrite');
+      const store = tx.objectStore('stationAudio');
+      store.clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async _assignCustomAudioToStation(station, blob) {
+    if (!station || !blob || !this.audio?.ctx) return false;
+    try {
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioBuffer = await this.audio.ctx.decodeAudioData(arrayBuffer);
+      this.audio.buffers.set(station.id, audioBuffer);
+      this.audio.reverseBuffers.set(station.id, this.audio._reverseBuffer(audioBuffer));
+      station.customAudioId = station.id;
+      await this._saveStationAudioBlob(station.id, blob);
+      this._touchCreatorProject();
+      return true;
+    } catch (err) {
+      console.warn('Unable to assign custom audio', err);
+      return false;
+    }
+  }
+
+  async _restoreAllStationCustomAudio() {
+    if (this.mode !== 'creator') return;
+    for (const station of this.stations) {
+      try {
+        const blob = await this._loadStationAudioBlob(station.id);
+        if (!blob) continue;
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioBuffer = await this.audio.ctx.decodeAudioData(arrayBuffer);
+        this.audio.buffers.set(station.id, audioBuffer);
+        this.audio.reverseBuffers.set(station.id, this.audio._reverseBuffer(audioBuffer));
+        station.customAudioId = station.id;
+      } catch (err) {
+        console.warn(`Could not restore audio for ${station.id}`, err);
+      }
+    }
+  }
+
+  async _exportCurrentStationAudio() {
+    if (!this.selectedStation) return false;
+    const blob = await this._loadStationAudioBlob(this.selectedStation.id);
+    if (!blob) return false;
+    const safe = (this.selectedStation.nameEn || this.selectedStation.name || this.selectedStation.id)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const ext = blob.type && blob.type.includes('webm') ? 'webm' : 'bin';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safe || 'station-audio'}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+    return true;
+  }
+
+  _resetGameplay() {
+    this.gameplay.score = 0;
+    this.gameplay.goal = 'Expandir ciudad';
+    this.gameplay.lastState = 'stagnation';
+    this.gameplay.lastUpdateMs = performance.now();
+    this.gameplay.events = [];
+    this._renderGameplayUI();
+  }
+
+  _pushGameplayEvent(text) {
+    this.gameplay.events.unshift(text);
+    if (this.gameplay.events.length > 4) this.gameplay.events.length = 4;
+  }
+
+  _updateGameplayFromMetrics(deltaTime) {
+    if (this.mode !== 'creator') return;
+    const m = this.cityMetrics;
+    if (!m) return;
+    const state = String(m.urbanState || 'stagnation');
+    const scoreDelta = ((m.activeStations || 0) * 0.05 + (m.nodes || 0) * 0.002 + (m.edges || 0) * 0.001 - (m.roadPressure || 0) * 0.03) * (deltaTime / 1000);
+    this.gameplay.score = Math.max(0, this.gameplay.score + scoreDelta);
+
+    if (state !== this.gameplay.lastState) {
+      this._pushGameplayEvent(`Estado: ${this.gameplay.lastState} -> ${state}`);
+      this.gameplay.lastState = state;
+    }
+
+    if (state === 'expansion') this.gameplay.goal = 'Mantener expansion sin gridlock';
+    else if (state === 'gridlock') this.gameplay.goal = 'Bajar congestion y recuperar flujo';
+    else if (state === 'ruin') this.gameplay.goal = 'Recuperar vitalidad urbana';
+    else this.gameplay.goal = 'Expandir ciudad';
+
+    this.gameplay.lastUpdateMs += deltaTime;
+    if (this.gameplay.lastUpdateMs >= 450) {
+      this.gameplay.lastUpdateMs = 0;
+      this._renderGameplayUI();
+    }
+  }
+
+  _renderGameplayUI() {
+    const scoreEl = document.getElementById('gameplay-score');
+    const goalEl = document.getElementById('gameplay-goal');
+    const stateEl = document.getElementById('gameplay-state');
+    const eventsEl = document.getElementById('gameplay-events');
+    if (scoreEl) scoreEl.textContent = `${Math.round(this.gameplay.score)}`;
+    if (goalEl) goalEl.textContent = this.gameplay.goal;
+    if (stateEl) stateEl.textContent = this.gameplay.lastState;
+    if (eventsEl) {
+      eventsEl.textContent = this.gameplay.events.length ? this.gameplay.events.join(' | ') : 'Sin eventos recientes';
+    }
+  }
+
+  _serializeStationForProject(station) {
+    return {
+      id: station.id,
+      name: station.name,
+      nameEn: station.nameEn,
+      nameJp: station.nameJp,
+      code: station.code,
+      x: Number(station.x),
+      y: Number(station.y),
+      note: station.note,
+      type: station.type,
+      ringRadius: station.ringRadius,
+      active: station.active !== false,
+      ghost: !!station.ghost,
+      trimStart: Number(station.trimStart || 0),
+      trimEnd: station.trimEnd == null ? null : Number(station.trimEnd),
+      volume: Number(station.volume == null ? 1 : station.volume),
+      pitch: Number(station.pitch == null ? 1 : station.pitch),
+      fx: {
+        delayTime: Number(station.fx?.delayTime || 0),
+        delayFeedback: Number(station.fx?.delayFeedback || 0),
+        delayWet: Number(station.fx?.delayWet || 0),
+        filterType: station.fx?.filterType || 'lowpass',
+        filterFreq: Number(station.fx?.filterFreq || 20000),
+        filterQ: Number(station.fx?.filterQ || 1)
+      },
+      color: station.color ? { ...station.color } : this._stationColorForIndex(0),
+      population: Number(station.population || 0),
+      vitality: Number(station.vitality || 0.5),
+      decayThreshold: Number(station.decayThreshold || 0.8),
+      locked: !!station.locked
+    };
+  }
+
+  _serializeTrainForProject(train) {
+    this._normalizeTrainSoundConfig(train);
+    return {
+      angle: Number(train.angle || 0),
+      speed: Number(train.speed || this._uiSpeedToActual(this.defaultUiSpeed)),
+      direction: train.direction === -1 ? -1 : 1,
+      color: train.color,
+      lightIntensity: Number(train.lightIntensity || 0.6),
+      lightRadius: Number(train.lightRadius || 300),
+      lightType: train.lightType || 'forward',
+      soundEnabled: train.soundEnabled !== false,
+      droneEnabled: !!train.droneEnabled,
+      soundVolume: Number(train.soundVolume || 0.08),
+      soundFrequency: Number(train.soundFrequency || 55),
+      soundRate: Number(train.soundRate || 1),
+      soundTone: Number(train.soundTone || 0.5)
+    };
+  }
+
+  _buildCreatorProjectPayload() {
+    return {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      cityId: this.currentCreatorCityId || null,
+      cityName: this.currentCreatorCityName || null,
+      growthProfile: this.growthProfile,
+      creatorStationCounter: this.creatorStationCounter,
+      stations: this.stations.map((s) => this._serializeStationForProject(s)),
+      trains: this.trains.getAll().map((t) => this._serializeTrainForProject(t)),
+      creation: {
+        entities: this.creation.entities,
+        nextId: this.creation.nextId,
+        performanceMode: this.creation.performanceMode,
+        enabled: this.creation.enabled,
+        tool: this.creation.tool
+      }
+    };
+  }
+
+  _restartCityWorker() {
+    if (this.cityWorker) {
+      this.cityWorker.terminate();
+      this.cityWorker = null;
+      this.cityBuffer = null;
+      this.cityPixelsRaw = null;
+      this.cityMetrics = null;
+    }
+    this._initCityWorker();
+  }
+
+  _applyCreatorProjectPayload(data, { restartWorker = true } = {}) {
+    if (!data || typeof data !== 'object') return false;
+
+    const rawStations = Array.isArray(data.stations) ? data.stations : [];
+    this.stations = rawStations.map((s) => ({ ...s }));
+    for (const station of this.stations) this._normalizeStationDefaults(station);
+
+    if (Number.isFinite(data.creatorStationCounter)) {
+      this.creatorStationCounter = Math.max(1, Math.floor(data.creatorStationCounter));
+    } else {
+      this.creatorStationCounter = Math.max(1, this.stations.length + 1);
+    }
+
+    for (const train of this.trains.getAll()) {
+      this.audio.removeTrainDrone(train.id);
+    }
+    this.trains.trains = [];
+
+    const incomingTrains = Array.isArray(data.trains) ? data.trains : [];
+    for (const saved of incomingTrains) {
+      const train = this.trains.addTrain(
+        Number(saved.speed || this._uiSpeedToActual(this.defaultUiSpeed)),
+        saved.direction === -1 ? -1 : 1,
+        this._onTrainClack
+      );
+      if (!train) break;
+      train.angle = Number(saved.angle || 0);
+      train.color = saved.color || train.color;
+      train.colorRGB = train._hexToRgb(train.color);
+      train.lightIntensity = Number(saved.lightIntensity || train.lightIntensity);
+      train.lightRadius = Number(saved.lightRadius || train.lightRadius);
+      train.lightType = saved.lightType || train.lightType;
+      train.soundEnabled = saved.soundEnabled !== false;
+      train.droneEnabled = !!saved.droneEnabled;
+      train.soundVolume = Number(saved.soundVolume || train.soundVolume);
+      train.soundFrequency = Number(saved.soundFrequency || train.soundFrequency);
+      train.soundRate = Number(saved.soundRate || train.soundRate);
+      train.soundTone = Number(saved.soundTone || train.soundTone);
+      this._normalizeTrainSoundConfig(train);
+    }
+
+    const creation = data.creation || {};
+    this.creation.entities = Array.isArray(creation.entities) ? creation.entities : [];
+    this.creation.nextId = Number(creation.nextId || 1);
+    this.creation.selectedId = null;
+    this.creation.performanceMode = creation.performanceMode === 'eco' ? 'eco' : 'normal';
+    this.creation.tool = typeof creation.tool === 'string' ? creation.tool : this.creation.tool;
+    this.creation.enabled = !!creation.enabled;
+    this.growthProfile = data.growthProfile === 'slow' || data.growthProfile === 'dense' ? data.growthProfile : 'balanced';
+    this._normalizeCreationState();
+
+    this._rebuildCreatorTrackAndRelocateTrains();
+    this._renderTrainControls();
+    this._renderCreationUI();
+    this._updateStationCount();
+
+    if (restartWorker) {
+      this._restartCityWorker();
+    }
+
+    return true;
+  }
+
+  _saveCreatorProjectLocalInternal() {
+    if (this.mode !== 'creator') return;
+    if (this.currentCreatorCityId) {
+      this._saveCityById(this.currentCreatorCityId, this.currentCreatorCityName || this.currentCreatorCityId);
+      return;
+    }
+    try {
+      const payload = this._buildCreatorProjectPayload();
+      localStorage.setItem(CREATOR_PROJECT_LOCAL_KEY, JSON.stringify(payload));
+    } catch (err) {
+      console.warn('Unable to save creator project', err);
+    }
+  }
+
+  _saveCreatorProjectLocal() {
+    this._saveCreatorProjectLocalInternal();
+    this.creatorProjectDirty = false;
+    this.creatorAutosaveElapsedMs = 0;
+  }
+
+  _loadCreatorProjectLocal({ silent = false, auto = false } = {}) {
+    try {
+      const raw = localStorage.getItem(CREATOR_PROJECT_LOCAL_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        const applied = this._applyCreatorProjectPayload(data, { restartWorker: true });
+        if (applied) {
+          this.currentCreatorCityId = data.cityId || this.currentCreatorCityId;
+          this.currentCreatorCityName = data.cityName || this.currentCreatorCityName;
+          this.creatorProjectDirty = false;
+          this.creatorAutosaveElapsedMs = 0;
+          return true;
+        }
+      }
+
+      const legacyRaw = localStorage.getItem(CREATION_SCENE_LOCAL_KEY);
+      if (legacyRaw) {
+        const legacy = JSON.parse(legacyRaw);
+        if (Array.isArray(legacy.entities)) {
+          this.creation.entities = legacy.entities;
+          this.creation.nextId = legacy.nextId || (legacy.entities.length + 1);
+          this.creation.selectedId = null;
+          this.creation.performanceMode = legacy.performanceMode || 'normal';
+          this._normalizeCreationState();
+          this._renderCreationUI();
+          return true;
+        }
+      }
+    } catch (err) {
+      if (!silent) {
+        console.warn('Unable to load creator project', err);
+      }
+    }
+
+    if (!auto && !silent) {
+      console.info('No local creator project found');
+    }
+    return false;
+  }
+
+  _stationColorForIndex(index) {
+    return {
+      h: Math.round((index * 47) % 360),
+      s: 70,
+      l: 55
+    };
+  }
+
+  _normalizeStationDefaults(station) {
+    if (!station) return;
+    const idx = Math.max(0, this.stations.indexOf(station));
+
+    if (station.nameEn == null) station.nameEn = station.name || `Station ${idx + 1}`;
+    if (station.nameJp == null) station.nameJp = station.nameEn;
+    if (station.name == null) station.name = station.nameEn;
+    if (station.code == null) station.code = `CR-${String(idx + 1).padStart(2, '0')}`;
+    if (station.ringRadius == null) station.ringRadius = 15;
+    if (station.active == null) station.active = true;
+    if (station.ghost == null) station.ghost = false;
+    if (station.trimStart == null) station.trimStart = 0;
+    if (station.trimEnd === undefined) station.trimEnd = null;
+    if (station.volume == null) station.volume = 1.0;
+    if (station.pitch == null) station.pitch = 1.0;
+    if (!station.fx || typeof station.fx !== 'object') {
+      station.fx = {};
+    }
+    if (station.fx.delayTime == null) station.fx.delayTime = 0;
+    if (station.fx.delayFeedback == null) station.fx.delayFeedback = 0;
+    if (station.fx.delayWet == null) station.fx.delayWet = 0;
+    if (station.fx.filterType == null) station.fx.filterType = 'lowpass';
+    if (station.fx.filterFreq == null) station.fx.filterFreq = 20000;
+    if (station.fx.filterQ == null) station.fx.filterQ = 1;
+    if (!station.color || typeof station.color !== 'object') {
+      station.color = this._stationColorForIndex(idx);
+    }
+
+    if (station.population == null) station.population = 0;
+    if (station.vitality == null) station.vitality = 0.5;
+    if (station.decayThreshold == null) station.decayThreshold = 0.8;
+    station.locked = !!station.locked;
+  }
+
+  _createCreatorStation(x, y) {
+    const id = `station-${Date.now()}-${this.creatorStationCounter++}`;
+    const station = {
+      id,
+      name: `Station ${this.stations.length + 1}`,
+      nameEn: `Station ${this.stations.length + 1}`,
+      nameJp: `Station ${this.stations.length + 1}`,
+      code: `CR-${String(this.stations.length + 1).padStart(2, '0')}`,
+      x,
+      y,
+      note: 60,
+      type: 'major',
+      ringRadius: 15,
+      active: true,
+      ghost: false,
+      trimStart: 0,
+      trimEnd: null,
+      volume: 1.0,
+      pitch: 1.0,
+      fx: {
+        delayTime: 0,
+        delayFeedback: 0,
+        delayWet: 0,
+        filterType: 'lowpass',
+        filterFreq: 20000,
+        filterQ: 1
+      },
+      color: this._stationColorForIndex(this.stations.length),
+      population: 0,
+      vitality: 0.5,
+      decayThreshold: 0.8,
+      locked: false
+    };
+    return station;
+  }
+
+  _isSelectedStationLocked() {
+    return !!(this.selectedStation && this.selectedStation.locked);
+  }
+
+  _setStationControlsEnabled(station) {
+    const locked = !!(station && station.locked);
+    const stationControlIds = [
+      'btn-state-active',
+      'btn-state-inactive',
+      'btn-state-ghost',
+      'station-name',
+      'station-code',
+      'town-population',
+      'town-vitality',
+      'town-decay-threshold',
+      'btn-audio-upload',
+      'btn-audio-record',
+      'btn-audio-export',
+      'station-volume',
+      'station-pitch',
+      'fx-delay-time',
+      'fx-delay-feedback',
+      'fx-delay-wet',
+      'fx-filter-freq',
+      'fx-filter-q'
+    ];
+
+    for (const id of stationControlIds) {
+      const el = document.getElementById(id);
+      if (el) el.disabled = locked;
+    }
+
+    const uploadInput = document.getElementById('station-audio-upload');
+    if (uploadInput) uploadInput.disabled = locked;
+
+    const lockNote = document.getElementById('station-lock-note');
+    if (lockNote) {
+      lockNote.style.display = locked ? 'block' : 'none';
+    }
+
+    const deleteBtn = document.getElementById('btn-delete-station');
+    if (deleteBtn) {
+      deleteBtn.style.display = (this.mode === 'creator' && !locked) ? 'block' : 'none';
+    }
+  }
+
+  _relocateTrainsToCurrentTrack(previousPositions = null) {
+    if (!this.ring) return;
+    const trains = this.trains.getAll();
+    if (trains.length === 0) return;
+
+    for (let i = 0; i < trains.length; i++) {
+      const train = trains[i];
+      const pos = previousPositions && previousPositions[i]
+        ? previousPositions[i]
+        : this.ring._getPointAtT(train.angle / 360);
+      const t = this.ring.getNearestTForPoint(pos.x, pos.y);
+      train.angle = t * 360;
+      train.triggeredStations.clear();
+    }
+  }
+
+  _rebuildCreatorTrackAndRelocateTrains() {
+    if (!this.ring) return;
+    const previousPositions = this.trains.getAll().map((train) => this.ring._getPointAtT(train.angle / 360));
+    this.ring.stations = this.stations;
+    this.ring.render();
+    this._relocateTrainsToCurrentTrack(previousPositions);
+    this.ring.updateTrains(this.trains.getAll());
   }
 
   _onStationClick(station) {
@@ -301,6 +1220,7 @@ class App {
   }
 
   _openStationPanel(station) {
+    this._normalizeStationDefaults(station);
     const panel = document.getElementById('station-panel');
     panel.classList.add('open');
     this.currentPanelView = 'station';
@@ -309,9 +1229,9 @@ class App {
     document.getElementById('panel-view-train').style.display = 'none';
     document.getElementById('panel-view-settings').style.display = 'none';
 
-    document.getElementById('panel-station-jp').textContent = station.nameJp;
-    document.getElementById('panel-station-en').textContent = station.nameEn;
-    document.getElementById('panel-station-code').textContent = station.code;
+    document.getElementById('panel-station-jp').textContent = station.nameJp || station.nameEn;
+    document.getElementById('panel-station-en').textContent = station.nameEn || station.name || '';
+    document.getElementById('panel-station-code').textContent = station.code || '';
 
     this._updateStateButtons(station);
     this.trimEditor.open(station);
@@ -334,6 +1254,16 @@ class App {
     document.getElementById('fx-filter-freq-val').textContent = this._formatFreq(fx.filterFreq);
     document.getElementById('fx-filter-q').value = fx.filterQ * 10;
     document.getElementById('fx-filter-q-val').textContent = fx.filterQ.toFixed(1);
+
+    document.getElementById('station-name').value = station.nameEn || station.name || '';
+    document.getElementById('station-code').value = station.code || '';
+    document.getElementById('town-population').value = Math.round(station.population || 0);
+    document.getElementById('town-population-val').textContent = `${Math.round(station.population || 0)}`;
+    document.getElementById('town-vitality').value = Math.round((station.vitality || 0) * 100);
+    document.getElementById('town-vitality-val').textContent = (station.vitality || 0).toFixed(2);
+    document.getElementById('town-decay-threshold').value = Math.round((station.decayThreshold || 0) * 100);
+    document.getElementById('town-decay-threshold-val').textContent = (station.decayThreshold || 0).toFixed(2);
+    this._setStationControlsEnabled(station);
   }
 
   _openTrainPanel(train) {
@@ -533,6 +1463,7 @@ class App {
     const train = this.trains.addTrain(actualSpeed, 1, this._onTrainClack);
     if (!train) return null;
     this._renderTrainControls();
+    this._touchCreatorProject();
     return train;
   }
 
@@ -601,73 +1532,140 @@ class App {
 
     // State buttons
     document.getElementById('btn-state-active').addEventListener('click', () => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.active = true;
       this.selectedStation.ghost = false;
       this.ring.updateStationState(this.selectedStation);
+      this._syncStationToWorker(this.selectedStation);
       this._updateStateButtons(this.selectedStation);
       this._updateStationCount();
+      this._touchCreatorProject();
     });
 
     document.getElementById('btn-state-inactive').addEventListener('click', () => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.active = false;
       this.selectedStation.ghost = false;
       this.ring.updateStationState(this.selectedStation);
+      this._syncStationToWorker(this.selectedStation);
       this._updateStateButtons(this.selectedStation);
       this._updateStationCount();
+      this._touchCreatorProject();
     });
 
     document.getElementById('btn-state-ghost').addEventListener('click', () => {
-      if (!this.selectedStation) return;
-      this.selectedStation.active = false;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      this.selectedStation.active = true;
       this.selectedStation.ghost = true;
       this.ring.updateStationState(this.selectedStation);
+      this._syncStationToWorker(this.selectedStation);
       this._updateStateButtons(this.selectedStation);
       this._updateStationCount();
+      this._touchCreatorProject();
+    });
+
+    document.getElementById('station-name').addEventListener('input', (e) => {
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      const name = e.target.value.trim();
+      this.selectedStation.name = name || this.selectedStation.name;
+      this.selectedStation.nameEn = name || this.selectedStation.nameEn;
+      this.selectedStation.nameJp = name || this.selectedStation.nameJp;
+      if (this.currentPanelView === 'station') {
+        document.getElementById('panel-station-jp').textContent = this.selectedStation.nameJp;
+        document.getElementById('panel-station-en').textContent = this.selectedStation.nameEn;
+      }
+      if (this.ring) this.ring.render();
+      this._touchCreatorProject();
+    });
+
+    document.getElementById('station-code').addEventListener('input', (e) => {
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      this.selectedStation.code = e.target.value.trim();
+      if (this.currentPanelView === 'station') {
+        document.getElementById('panel-station-code').textContent = this.selectedStation.code;
+      }
+      this._touchCreatorProject();
+    });
+
+    document.getElementById('town-population').addEventListener('input', (e) => {
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      this.selectedStation.population = parseInt(e.target.value, 10) || 0;
+      document.getElementById('town-population-val').textContent = `${this.selectedStation.population}`;
+      this._syncStationToWorker(this.selectedStation);
+    });
+
+    document.getElementById('town-vitality').addEventListener('input', (e) => {
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      this.selectedStation.vitality = Math.max(0, Math.min(1, parseFloat(e.target.value) / 100));
+      document.getElementById('town-vitality-val').textContent = this.selectedStation.vitality.toFixed(2);
+      this._syncStationToWorker(this.selectedStation);
+    });
+
+    document.getElementById('town-decay-threshold').addEventListener('input', (e) => {
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      this.selectedStation.decayThreshold = Math.max(0, Math.min(1, parseFloat(e.target.value) / 100));
+      document.getElementById('town-decay-threshold-val').textContent = this.selectedStation.decayThreshold.toFixed(2);
+      this._syncStationToWorker(this.selectedStation);
+    });
+
+    document.getElementById('btn-delete-station').addEventListener('click', () => {
+      if (!this.selectedStation || this.mode !== 'creator' || this._isSelectedStationLocked()) return;
+      const targetId = this.selectedStation.id;
+      this.audio.buffers.delete(targetId);
+      this.audio.reverseBuffers.delete(targetId);
+      this._deleteStationAudioBlob(targetId).catch((err) => {
+        console.warn('Unable to delete station audio blob', err);
+      });
+      this.stations = this.stations.filter((s) => s.id !== targetId);
+      this._removeStationFromWorker(targetId);
+      this.selectedStation = null;
+      this._closePanel();
+      this._rebuildCreatorTrackAndRelocateTrains();
+      this._updateStationCount();
+      this._touchCreatorProject();
     });
 
     // Volume
     document.getElementById('station-volume').addEventListener('input', (e) => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.volume = e.target.value / 100;
       document.getElementById('vol-value').textContent = this.selectedStation.volume.toFixed(1);
     });
 
     // Pitch
     document.getElementById('station-pitch').addEventListener('input', (e) => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.pitch = e.target.value / 100;
       document.getElementById('pitch-value').textContent = this.selectedStation.pitch.toFixed(1);
     });
 
     // === FX Controls ===
     document.getElementById('fx-delay-time').addEventListener('input', (e) => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.fx.delayTime = e.target.value / 100;
       document.getElementById('fx-delay-time-val').textContent = this.selectedStation.fx.delayTime.toFixed(2) + 's';
     });
 
     document.getElementById('fx-delay-feedback').addEventListener('input', (e) => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.fx.delayFeedback = e.target.value / 100;
       document.getElementById('fx-delay-feedback-val').textContent = this.selectedStation.fx.delayFeedback.toFixed(1);
     });
 
     document.getElementById('fx-delay-wet').addEventListener('input', (e) => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.fx.delayWet = e.target.value / 100;
       document.getElementById('fx-delay-wet-val').textContent = this.selectedStation.fx.delayWet.toFixed(1);
     });
 
     document.getElementById('fx-filter-freq').addEventListener('input', (e) => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.fx.filterFreq = this._sliderToFreq(e.target.value);
       document.getElementById('fx-filter-freq-val').textContent = this._formatFreq(this.selectedStation.fx.filterFreq);
     });
 
     document.getElementById('fx-filter-q').addEventListener('input', (e) => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.fx.filterQ = e.target.value / 10;
       document.getElementById('fx-filter-q-val').textContent = this.selectedStation.fx.filterQ.toFixed(1);
     });
@@ -676,27 +1674,21 @@ class App {
     const btnUpload = document.getElementById('btn-audio-upload');
     const uploadInput = document.getElementById('station-audio-upload');
     const btnRecord = document.getElementById('btn-audio-record');
+    const btnAudioExport = document.getElementById('btn-audio-export');
     const customAudioStatus = document.getElementById('custom-audio-status');
 
     btnUpload.addEventListener('click', () => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
       uploadInput.click();
     });
 
     uploadInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
-      if (!file || !this.selectedStation) return;
+      if (!file || !this.selectedStation || this._isSelectedStationLocked()) return;
       
       try {
         customAudioStatus.textContent = 'Decodificando audio...';
-        const arrayBuffer = await file.arrayBuffer();
-        const audioBuffer = await this.audio.ctx.decodeAudioData(arrayBuffer);
-        
-        // Store buffer in AudioEngine against this specific station ID
-        this.audio.buffers[this.selectedStation.id] = audioBuffer;
-        
-        // Ensure the station points to its own ID instead of the default name mapping
-        this.selectedStation.customAudioId = this.selectedStation.id;
+        await this._assignCustomAudioToStation(this.selectedStation, file);
         
         customAudioStatus.textContent = 'Audio cargado ✓';
         customAudioStatus.style.color = 'var(--color-success)';
@@ -714,7 +1706,7 @@ class App {
     let audioChunks = [];
 
     btnRecord.addEventListener('click', async () => {
-      if (!this.selectedStation) return;
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
 
       if (mediaRecorder && mediaRecorder.state === 'recording') {
         // Stop recording
@@ -739,11 +1731,7 @@ class App {
             stream.getTracks().forEach(t => t.stop()); // Stop microphone access
             
             try {
-              const arrayBuffer = await blob.arrayBuffer();
-              const audioBuffer = await this.audio.ctx.decodeAudioData(arrayBuffer);
-              
-              this.audio.buffers[this.selectedStation.id] = audioBuffer;
-              this.selectedStation.customAudioId = this.selectedStation.id;
+              await this._assignCustomAudioToStation(this.selectedStation, blob);
               
               customAudioStatus.textContent = 'Audio grabado ✓';
               customAudioStatus.style.color = 'var(--color-success)';
@@ -767,6 +1755,19 @@ class App {
           customAudioStatus.style.color = '#ff4444';
         }
       }
+    });
+
+    btnAudioExport.addEventListener('click', async () => {
+      if (!this.selectedStation) return;
+      const ok = await this._exportCurrentStationAudio();
+      if (!ok) {
+        customAudioStatus.textContent = 'No hay audio custom para exportar';
+        customAudioStatus.style.color = 'var(--color-text-dim)';
+      } else {
+        customAudioStatus.textContent = 'Audio exportado ✓';
+        customAudioStatus.style.color = 'var(--color-success)';
+      }
+      setTimeout(() => customAudioStatus.textContent = '', 2600);
     });
 
     // === Train Edit Panel Controls ===
@@ -938,10 +1939,102 @@ class App {
       this._renderCreationWarning();
     });
 
+    document.getElementById('creation-growth-profile').addEventListener('change', (e) => {
+      this._setGrowthProfile(e.target.value);
+      this._showCreatorStatus(`Perfil de crecimiento: ${this.growthProfile}`, 'ok');
+    });
+
     document.getElementById('creation-export').addEventListener('click', () => this._exportCreationScene());
     document.getElementById('creation-import').addEventListener('click', () => this._importCreationScene());
     document.getElementById('creation-save-local').addEventListener('click', () => this._saveCreationSceneLocal());
     document.getElementById('creation-load-local').addEventListener('click', () => this._loadCreationSceneLocal());
+    document.getElementById('creation-delete-local').addEventListener('click', async () => this._deleteCreatorProjectLocal());
+
+    const cityNameInput = document.getElementById('creator-city-name');
+    const citySelect = document.getElementById('creator-city-select');
+    cityNameInput?.addEventListener('input', () => {
+      this.currentCreatorCityName = cityNameInput.value;
+      this._touchCreatorProject();
+    });
+    citySelect?.addEventListener('change', () => {
+      const selected = this._loadCitiesIndex().cities.find((c) => c.id === citySelect.value);
+      if (selected) {
+        this.currentCreatorCityId = selected.id;
+        this.currentCreatorCityName = selected.name;
+        if (cityNameInput) cityNameInput.value = selected.name;
+      }
+    });
+    document.getElementById('creator-city-new').addEventListener('click', async () => {
+      const suggested = `Ciudad ${Math.max(1, this._loadCitiesIndex().cities.length + 1)}`;
+      const name = window.prompt('Nombre de la nueva ciudad:', suggested);
+      if (!name || !name.trim()) return;
+      const cityId = this._slugifyCityName(`${name}-${Date.now()}`);
+      this.currentCreatorCityId = cityId;
+      this.currentCreatorCityName = name.trim();
+      this._createEmptyCreatorProject(this.currentCreatorCityName);
+      this._saveCityById(cityId, this.currentCreatorCityName);
+      this._refreshCitySelectUI();
+      this._showCreatorStatus(`Nueva ciudad creada: ${this.currentCreatorCityName}`, 'ok');
+    });
+
+    document.getElementById('creator-city-save').addEventListener('click', () => {
+      const nextName = (cityNameInput?.value || this.currentCreatorCityName || '').trim();
+      if (!this.currentCreatorCityId) {
+        this.currentCreatorCityId = this._slugifyCityName(`${nextName || 'ciudad'}-${Date.now()}`);
+      }
+      this.currentCreatorCityName = nextName || this.currentCreatorCityName || 'Nueva Ciudad';
+      const ok = this._saveCityById(this.currentCreatorCityId, this.currentCreatorCityName);
+      this._showCreatorStatus(ok ? `Ciudad guardada: ${this.currentCreatorCityName}` : 'No se pudo guardar ciudad', ok ? 'ok' : 'error');
+    });
+
+    document.getElementById('creator-city-load').addEventListener('click', async () => {
+      const cityId = citySelect?.value;
+      if (!cityId) {
+        this._showCreatorStatus('Selecciona una ciudad para cargar', 'error');
+        return;
+      }
+      const ok = await this._loadCityById(cityId);
+      if (!ok) this._showCreatorStatus('No se pudo cargar la ciudad seleccionada', 'error');
+    });
+
+    document.getElementById('creator-city-delete').addEventListener('click', async () => {
+      const cityId = citySelect?.value;
+      if (!cityId) {
+        this._showCreatorStatus('No hay ciudad seleccionada para eliminar', 'error');
+        return;
+      }
+      const cityLabel = citySelect.options[citySelect.selectedIndex]?.textContent || cityId;
+      const confirmed = window.confirm(`Eliminar ciudad guardada "${cityLabel}"?`);
+      if (!confirmed) return;
+      const ok = await this._deleteCityById(cityId);
+      this._showCreatorStatus(ok ? `Ciudad eliminada: ${cityLabel}` : 'No se pudo eliminar la ciudad', ok ? 'ok' : 'error');
+    });
+
+    document.getElementById('creator-city-rename').addEventListener('click', () => {
+      const cityId = citySelect?.value || this.currentCreatorCityId;
+      if (!cityId) {
+        this._showCreatorStatus('No hay ciudad seleccionada para renombrar', 'error');
+        return;
+      }
+      const currentName = cityNameInput?.value || this.currentCreatorCityName || cityId;
+      const nextName = window.prompt('Nuevo nombre de ciudad:', currentName);
+      if (!nextName || !nextName.trim()) return;
+      const ok = this._renameCityById(cityId, nextName);
+      this._showCreatorStatus(ok ? `Ciudad renombrada: ${nextName.trim()}` : 'No se pudo renombrar la ciudad', ok ? 'ok' : 'error');
+    });
+
+    document.getElementById('creator-city-duplicate').addEventListener('click', async () => {
+      const sourceCityId = citySelect?.value || this.currentCreatorCityId;
+      if (!sourceCityId) {
+        this._showCreatorStatus('No hay ciudad seleccionada para duplicar', 'error');
+        return;
+      }
+      const baseName = citySelect.options[citySelect.selectedIndex]?.textContent || this.currentCreatorCityName || 'Ciudad';
+      const nextName = window.prompt('Nombre para la copia:', `${baseName} copia`);
+      if (!nextName || !nextName.trim()) return;
+      const ok = await this._duplicateCityById(sourceCityId, nextName);
+      this._showCreatorStatus(ok ? `Ciudad duplicada: ${nextName.trim()}` : 'No se pudo duplicar la ciudad', ok ? 'ok' : 'error');
+    });
 
     document.getElementById('btn-clear-walls').addEventListener('click', () => {
       this.bg.clearWalls();
@@ -979,6 +2072,32 @@ class App {
     btn.textContent = enabled ? 'Disable Creation Mode' : 'Enable Creation Mode';
     btn.classList.toggle('btn--active', enabled);
     canvas.classList.toggle('creation-active', enabled);
+    this._touchCreatorProject();
+  }
+
+  _setGrowthProfile(profile) {
+    const next = (profile === 'slow' || profile === 'dense') ? profile : 'balanced';
+    if (this.growthProfile === next) return;
+    this.growthProfile = next;
+    if (this.cityWorker) {
+      this.cityWorker.postMessage({ type: 'SET_GROWTH_PROFILE', growthProfile: this.growthProfile });
+    }
+    this._renderGrowthProfileHelp();
+    this._touchCreatorProject();
+  }
+
+  _renderGrowthProfileHelp() {
+    const el = document.getElementById('creation-growth-help');
+    if (!el) return;
+    if (this.growthProfile === 'slow') {
+      el.textContent = 'Lento: crecimiento suave, mas limpio y con menos ruido visual.';
+      return;
+    }
+    if (this.growthProfile === 'dense') {
+      el.textContent = 'Organico denso: ciudad mas viva y compacta, con mayor complejidad.';
+      return;
+    }
+    el.textContent = 'Balanceado: punto medio entre claridad urbana y dinamismo.';
   }
 
   _cancelCreationInteraction() {
@@ -999,29 +2118,38 @@ class App {
       btn.classList.toggle('btn--active', btn.getAttribute('data-tool') === this.creation.tool);
     });
     document.getElementById('creation-tool-label').textContent = `Tool: ${this.creation.tool}`;
+    this._touchCreatorProject();
   }
 
   _renderCreationUI() {
     const perf = document.getElementById('creation-performance');
     if (perf) perf.value = this.creation.performanceMode;
+    const growth = document.getElementById('creation-growth-profile');
+    if (growth) growth.value = this.growthProfile;
+    this._renderGrowthProfileHelp();
     this._setCreationTool(this.creation.tool);
     this._renderCreationWarning();
     this._renderCreationEntityList();
     this._renderCreationInspector();
     this._setCreationEnabled(this.creation.enabled);
+    this._renderGameplayUI();
   }
 
   _renderCreationWarning() {
     const warning = document.getElementById('creation-warning');
     if (!warning) return;
     const rotatingCount = this.creation.entities.filter((e) => e.type === 'rotating_line').length;
+    const metricText = this.cityMetrics
+      ? `Cities:${this.cityMetrics.stations || 0} Nodes:${this.cityMetrics.nodes || 0} Roads:${this.cityMetrics.edges || 0} AgentsPx:${this.cityMetrics.pixels || 0}${this.cityMetrics.physics ? ' Physics:ON' : ' Physics:OFF'}`
+      : '';
     if (rotatingCount > this.creation.maxRotatingRecommended) {
-      warning.textContent = `Warning: ${rotatingCount} rotating lines can affect performance.`;
+      warning.textContent = `Warning: ${rotatingCount} rotating lines can affect performance.${metricText ? ` ${metricText}` : ''}`;
       return;
     }
-    warning.textContent = this.creation.performanceMode === 'eco'
+    const base = this.creation.performanceMode === 'eco'
       ? 'Eco shadows enabled: lower cost, slightly less precise shadows.'
       : '';
+    warning.textContent = [base, metricText].filter(Boolean).join(' | ');
   }
 
   _renderCreationEntityList() {
@@ -1374,6 +2502,7 @@ class App {
     this.creation.undoStack.push(this._snapshotCreationState());
     if (this.creation.undoStack.length > 120) this.creation.undoStack.shift();
     this.creation.redoStack = [];
+    this._touchCreatorProject();
   }
 
   _undoCreation() {
@@ -1442,34 +2571,45 @@ class App {
   }
 
   _saveCreationSceneLocal() {
-    try {
-      const payload = {
-        version: 1,
-        entities: this.creation.entities,
-        nextId: this.creation.nextId,
-        performanceMode: this.creation.performanceMode
-      };
-      localStorage.setItem('trenfase.creation.scene.v1', JSON.stringify(payload));
-    } catch (err) {
-      console.warn('Unable to save local scene', err);
+    const cityNameInput = document.getElementById('creator-city-name');
+    const proposedName = (cityNameInput?.value || this.currentCreatorCityName || 'Nueva Ciudad').trim();
+    if (!this.currentCreatorCityId) {
+      this.currentCreatorCityId = this._slugifyCityName(`${proposedName}-${Date.now()}`);
     }
+    this.currentCreatorCityName = proposedName;
+    const ok = this._saveCityById(this.currentCreatorCityId, this.currentCreatorCityName);
+    this._showCreatorStatus(ok ? `Ciudad guardada: ${this.currentCreatorCityName}` : 'No se pudo guardar ciudad', ok ? 'ok' : 'error');
   }
 
   _loadCreationSceneLocal() {
+    const citySelect = document.getElementById('creator-city-select');
+    const cityId = citySelect?.value || this.currentCreatorCityId;
+    if (!cityId) {
+      this._showCreatorStatus('No hay ciudad seleccionada para cargar', 'error');
+      return;
+    }
+    this._loadCityById(cityId).then((ok) => {
+      if (!ok) this._showCreatorStatus('No se pudo cargar la ciudad', 'error');
+    });
+  }
+
+  async _deleteCreatorProjectLocal() {
     try {
-      const raw = localStorage.getItem('trenfase.creation.scene.v1');
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (!Array.isArray(data.entities)) return;
-      this._pushCreationUndo();
-      this.creation.entities = data.entities;
-      this.creation.nextId = data.nextId || (data.entities.length + 1);
-      this.creation.selectedId = null;
-      this.creation.performanceMode = data.performanceMode || 'normal';
-      this._normalizeCreationState();
-      this._renderCreationUI();
+      localStorage.removeItem(CREATOR_PROJECT_LOCAL_KEY);
+      localStorage.removeItem(CREATION_SCENE_LOCAL_KEY);
+      const index = this._loadCitiesIndex();
+      for (const city of index.cities) {
+        localStorage.removeItem(this._getCityStorageKey(city.id));
+      }
+      localStorage.removeItem(CREATOR_CITIES_INDEX_KEY);
+      await this._clearAllStationAudioBlobs();
+      this.currentCreatorCityId = null;
+      this.currentCreatorCityName = '';
+      this._refreshCitySelectUI();
+      this._showCreatorStatus('Se eliminaron todos los guardados locales de Creator', 'ok');
     } catch (err) {
-      console.warn('Unable to load local scene', err);
+      console.warn('Unable to delete local creator project', err);
+      this._showCreatorStatus('No se pudo borrar guardado local', 'error');
     }
   }
 
@@ -1500,31 +2640,15 @@ class App {
     if (this.creation.tool === 'station') {
       // In Creator mode, add a new station to this.stations array
       this._pushCreationUndo();
-      
-      const newStation = {
-        id: `station-${Date.now()}`,
-        name: `Station ${this.stations.length + 1}`,
-        x: p.x,
-        y: p.y,
-        note: 60,       // Default MIDI Note (C4)
-        type: 'major',
-        ringRadius: 15,
-        // UI Defaults (SimCity Expansion variables)
-        population: 0,
-        vitality: 0.5,
-        decayThreshold: 0.8
-      };
+      const newStation = this._createCreatorStation(p.x, p.y);
       
       this.stations.push(newStation);
+      this._syncStationToWorker(newStation);
+      this._rebuildCreatorTrackAndRelocateTrains();
+      this._updateStationCount();
       
       // Select it in the standard UI
       this.selectedStation = newStation;
-      if (this.ring) {
-        this.ring.stations = this.stations; // ensure sync
-        this.ring.render();
-      }
-      this.menuTab = 'station';
-      this._renderMenu();
       this._openStationPanel(newStation); // Open the specific station properties panel
       
       this.creation.isPointerDown = false;

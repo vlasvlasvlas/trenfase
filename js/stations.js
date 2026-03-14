@@ -5,7 +5,7 @@
  */
 
 const STATIONS = [
-  { id: 'tokyo',             nameEn: 'Tokyo',             nameJp: '東京',           code: 'JY-01', audioFile: 'audio/sh3.mp3' },
+  { id: 'tokyo',             nameEn: 'Tokyo',             nameJp: '東京',           code: 'JY-01', audioFile: 'audio/sh3.mp3', locked: true },
   { id: 'kanda',             nameEn: 'Kanda',             nameJp: '神田',           code: 'JY-02', audioFile: 'audio/seseragi.mp3' },
   { id: 'akihabara',         nameEn: 'Akihabara',         nameJp: '秋葉原',         code: 'JY-03', audioFile: 'audio/ogawav1.mp3' },
   { id: 'okachimachi',       nameEn: 'Okachimachi',       nameJp: '御徒町',         code: 'JY-04', audioFile: 'audio/harutrem.mp3' },

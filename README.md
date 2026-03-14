@@ -26,6 +26,19 @@ Referencias de contexto:
 
 ## 2. Estado actual del proyecto (implementado)
 
+### Estado de fases (snapshot final)
+
+| Fase | Nombre | Estado |
+|---|---|---|
+| 1 | Foundation & Custom Audio | Complete |
+| 2 | The Core Ecosystem Engine | Complete |
+| 3 | Generative Algorithms | Complete |
+| 4 | Acoustic Translation & Dynamic Audio | Complete |
+| 5 | What-If Gameplay Mechanics (Drag & Drop) | Pending |
+| 6 | Stabilization, QA & Release Hardening | Complete |
+
+Resumen: Fases 1, 2, 3, 4 y 6 cerradas. Fase 5 pendiente como siguiente objetivo principal.
+
 - 30 estaciones de Yamanote (`JY-01` a `JY-30`) con audio por estación.
 - Tren(es) con configuración totalmente individual:
   - velocidad,

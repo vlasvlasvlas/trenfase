@@ -22,6 +22,28 @@ class AudioEngine {
 
     // Per-train Continuous Drones
     this.trainDrones = new Map();
+
+    // City Audio (Phase 4)
+    this.cityAudio = {
+      initialized: false,
+      bus: null,
+      inputGain: null,
+      trafficNoiseSource: null,
+      trafficNoiseGain: null,
+      trafficFilter: null,
+      stateDrive: null,
+      stateGain: null,
+      bubbleGain: null,
+      bubbleBandpass: null,
+      bubbleHighpass: null,
+      ruinDelay: null,
+      ruinFeedback: null,
+      ruinWet: null,
+      ruinDry: null,
+      noiseBuffer: null,
+      nextBubbleAt: 0,
+      lastState: 'stagnation',
+    };
   }
 
   init() {
@@ -39,6 +61,220 @@ class AudioEngine {
 
     // Setup drone
     this._setupDrone();
+    this._setupCityAudio();
+  }
+
+  _createNoiseBuffer(seconds = 1.0) {
+    const length = Math.max(1, Math.floor(this.ctx.sampleRate * seconds));
+    const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    return buffer;
+  }
+
+  _makeDriveCurve(amount = 0) {
+    const k = Math.max(0, amount);
+    const n = 2048;
+    const curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i * 2) / n - 1;
+      curve[i] = ((3 + k) * x * 20 * (Math.PI / 180)) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+  }
+
+  _setupCityAudio() {
+    if (!this.ctx || this.cityAudio.initialized) return;
+
+    const bus = this.ctx.createGain();
+    const inputGain = this.ctx.createGain();
+    inputGain.gain.value = 0;
+
+    const trafficFilter = this.ctx.createBiquadFilter();
+    trafficFilter.type = 'lowpass';
+    trafficFilter.frequency.value = 260;
+    trafficFilter.Q.value = 0.8;
+
+    const stateDrive = this.ctx.createWaveShaper();
+    stateDrive.curve = this._makeDriveCurve(0);
+    stateDrive.oversample = '2x';
+
+    const stateGain = this.ctx.createGain();
+    stateGain.gain.value = 1;
+
+    const trafficNoiseGain = this.ctx.createGain();
+    trafficNoiseGain.gain.value = 0;
+
+    const bubbleBandpass = this.ctx.createBiquadFilter();
+    bubbleBandpass.type = 'bandpass';
+    bubbleBandpass.frequency.value = 1800;
+    bubbleBandpass.Q.value = 5;
+
+    const bubbleHighpass = this.ctx.createBiquadFilter();
+    bubbleHighpass.type = 'highpass';
+    bubbleHighpass.frequency.value = 700;
+
+    const bubbleGain = this.ctx.createGain();
+    bubbleGain.gain.value = 0;
+
+    const ruinDelay = this.ctx.createDelay(3.0);
+    ruinDelay.delayTime.value = 0.38;
+    const ruinFeedback = this.ctx.createGain();
+    ruinFeedback.gain.value = 0;
+    const ruinWet = this.ctx.createGain();
+    ruinWet.gain.value = 0;
+    const ruinDry = this.ctx.createGain();
+    ruinDry.gain.value = 1;
+
+    inputGain.connect(trafficFilter);
+    trafficFilter.connect(stateDrive);
+    stateDrive.connect(stateGain);
+
+    stateGain.connect(ruinDry);
+    ruinDry.connect(bus);
+
+    stateGain.connect(ruinDelay);
+    ruinDelay.connect(ruinFeedback);
+    ruinFeedback.connect(ruinDelay);
+    ruinDelay.connect(ruinWet);
+    ruinWet.connect(bus);
+
+    trafficNoiseGain.connect(inputGain);
+    bubbleBandpass.connect(bubbleHighpass);
+    bubbleHighpass.connect(bubbleGain);
+    bubbleGain.connect(inputGain);
+
+    bus.connect(this.masterBus);
+
+    const noiseBuffer = this._createNoiseBuffer(2.0);
+    const noiseSource = this.ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+    noiseSource.loop = true;
+    noiseSource.connect(trafficNoiseGain);
+    noiseSource.start();
+
+    this.cityAudio = {
+      initialized: true,
+      bus,
+      inputGain,
+      trafficNoiseSource: noiseSource,
+      trafficNoiseGain,
+      trafficFilter,
+      stateDrive,
+      stateGain,
+      bubbleGain,
+      bubbleBandpass,
+      bubbleHighpass,
+      ruinDelay,
+      ruinFeedback,
+      ruinWet,
+      ruinDry,
+      noiseBuffer,
+      nextBubbleAt: this.ctx.currentTime,
+      lastState: 'stagnation',
+    };
+  }
+
+  _triggerBubble(densityNorm = 0.1, state = 'stagnation') {
+    if (!this.ctx || !this.cityAudio.initialized) return;
+    const ca = this.cityAudio;
+    const now = this.ctx.currentTime;
+    const source = this.ctx.createBufferSource();
+    source.buffer = ca.noiseBuffer || this._createNoiseBuffer(1.0);
+
+    const dur = 0.03 + Math.random() * 0.06;
+    const burst = this.ctx.createGain();
+    const base = 0.012 + densityNorm * 0.06;
+    const stateMul = state === 'expansion' ? 1.2 : (state === 'gridlock' ? 0.65 : (state === 'ruin' ? 0.35 : 0.85));
+    const amp = base * stateMul * (0.6 + Math.random() * 0.8);
+
+    burst.gain.setValueAtTime(0.0001, now);
+    burst.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp), now + 0.01);
+    burst.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+
+    const freq = 900 + Math.random() * 2500 + densityNorm * 900;
+    ca.bubbleBandpass.frequency.setTargetAtTime(freq, now, 0.02);
+    ca.bubbleBandpass.Q.setTargetAtTime(3 + Math.random() * 8, now, 0.03);
+    ca.bubbleHighpass.frequency.setTargetAtTime(550 + densityNorm * 450, now, 0.03);
+
+    source.connect(burst);
+    burst.connect(ca.bubbleBandpass);
+    source.start(now, Math.random() * 0.2, dur + 0.02);
+    source.stop(now + dur + 0.03);
+  }
+
+  updateCitySound(metrics) {
+    if (!this.ctx) return;
+    if (!this.cityAudio.initialized) this._setupCityAudio();
+    const ca = this.cityAudio;
+    if (!ca.initialized) return;
+
+    const now = this.ctx.currentTime;
+    if (!metrics || !metrics.stations) {
+      ca.inputGain.gain.setTargetAtTime(0, now, 0.6);
+      ca.trafficNoiseGain.gain.setTargetAtTime(0, now, 0.6);
+      ca.bubbleGain.gain.setTargetAtTime(0, now, 0.6);
+      ca.ruinWet.gain.setTargetAtTime(0, now, 0.6);
+      ca.ruinFeedback.gain.setTargetAtTime(0, now, 0.6);
+      return;
+    }
+
+    const walkers = Math.max(0, Number(metrics.walkers || 0));
+    const cars = Math.max(0, Number(metrics.cars || 0));
+    const roadPressure = Math.max(0, Number(metrics.roadPressure || 0));
+    const vitality = Math.max(0, Math.min(1, Number(metrics.avgVitality || 0)));
+    const strain = Math.max(0, Math.min(1.5, Number(metrics.avgStrain || 0)));
+    const state = String(metrics.urbanState || 'stagnation');
+
+    const pedNorm = Math.max(0, Math.min(1, walkers / 180));
+    const trafficNorm = Math.max(0, Math.min(1, cars / 110));
+    const pressureNorm = Math.max(0, Math.min(1, roadPressure / 1.35));
+
+    const stateGainByName = {
+      expansion: 1.1,
+      stagnation: 0.85,
+      gridlock: 1.0,
+      ruin: 0.55,
+    };
+    const stateMul = stateGainByName[state] || 0.85;
+
+    const trafficGain = (0.02 + trafficNorm * 0.11 + pressureNorm * 0.06) * stateMul;
+    const bubblePadGain = (0.01 + pedNorm * 0.08) * (state === 'ruin' ? 0.28 : 1);
+    const filterBase = 160 + trafficNorm * 700 + vitality * 500;
+    const filterStateBoost = state === 'expansion' ? 900 : (state === 'gridlock' ? -35 : (state === 'ruin' ? -80 : 0));
+    const filterTarget = Math.max(90, filterBase + filterStateBoost - strain * 220);
+
+    ca.inputGain.gain.setTargetAtTime(0.3 + trafficNorm * 0.45 + pedNorm * 0.2, now, 0.25);
+    ca.trafficNoiseGain.gain.setTargetAtTime(trafficGain, now, 0.22);
+    ca.bubbleGain.gain.setTargetAtTime(bubblePadGain, now, 0.25);
+    ca.trafficFilter.frequency.setTargetAtTime(filterTarget, now, 0.2);
+    ca.trafficFilter.Q.setTargetAtTime(0.6 + pressureNorm * 2.8, now, 0.2);
+
+    const driveAmount = state === 'gridlock'
+      ? (28 + pressureNorm * 70)
+      : (state === 'ruin' ? 8 + strain * 22 : 2 + pressureNorm * 10);
+    ca.stateDrive.curve = this._makeDriveCurve(driveAmount);
+    ca.stateGain.gain.setTargetAtTime(state === 'gridlock' ? 0.9 : 1.0, now, 0.2);
+
+    const ruinWet = state === 'ruin' ? Math.min(0.68, 0.22 + strain * 0.5) : 0.02;
+    const ruinFb = state === 'ruin' ? Math.min(0.72, 0.33 + strain * 0.3) : 0.05;
+    ca.ruinWet.gain.setTargetAtTime(ruinWet, now, 0.35);
+    ca.ruinFeedback.gain.setTargetAtTime(ruinFb, now, 0.35);
+    ca.ruinDry.gain.setTargetAtTime(state === 'ruin' ? 0.52 : 1, now, 0.35);
+
+    const minGap = state === 'expansion' ? 0.05 : (state === 'stagnation' ? 0.12 : (state === 'gridlock' ? 0.16 : 0.24));
+    const maxGap = state === 'expansion' ? 0.22 : (state === 'stagnation' ? 0.38 : (state === 'gridlock' ? 0.45 : 0.62));
+    const interval = maxGap - (maxGap - minGap) * pedNorm;
+    if (state !== 'ruin' && now >= ca.nextBubbleAt) {
+      this._triggerBubble(pedNorm, state);
+      ca.nextBubbleAt = now + interval * (0.75 + Math.random() * 0.7);
+    } else if (state === 'ruin') {
+      ca.nextBubbleAt = now + 0.45 + Math.random() * 0.7;
+    }
+
+    ca.lastState = state;
   }
 
   async loadAll(stations) {

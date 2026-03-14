@@ -1,5 +1,18 @@
 # TRENFASE V2 (Pixel-SimCity) - Roadmap and Progress Tracker
 
+## Final Phase Status Snapshot
+
+| Phase | Name | Status |
+|---|---|---|
+| 1 | Foundation & Custom Audio | Complete |
+| 2 | The Core Ecosystem Engine | Complete |
+| 3 | Generative Algorithms | Complete |
+| 4 | Acoustic Translation & Dynamic Audio | Complete |
+| 5 | What-If Gameplay Mechanics (Drag & Drop) | Pending |
+| 6 | Stabilization, QA & Release Hardening | Complete |
+
+**Current milestone state:** Fases 1, 2, 3, 4 y 6 cerradas. Fase 5 pendiente como siguiente objetivo de producto.
+
 ## Phase 1: Foundation & Custom Audio (Complete)
 - [x] Hard reset to clean `main` to ensure a stable V1 baseline.
 - [x] Migrate Custom Audio Upload (WAV/MP3) to new modular `app.js` and `AudioEngine`.
@@ -17,16 +30,18 @@
 - [x] Visually verify the rendering pipeline with a pulsating green matrix placeholder.
 - [x] Fix Canvas rendering and collision logic for manually placed UI stations in Creator Mode.
 
-## Phase 3: Generative Algorithms (Pending)
-- [ ] Implement "Space Colonization" (fractal growth) originating from UI station coordinates.
-- [ ] Implement A* pathfinding for pixel-cars/walkers restricted to road pixels.
-- [ ] Build the ECS (Entity Component System) loop inside the Worker to handle thousands of walkers/cars efficiently.
+## Phase 3: Generative Algorithms (Complete)
+- [x] Implement "Space Colonization"-inspired fractal growth from UI station coordinates (multi-city clusters per station).
+- [x] Implement A* pathfinding for pixel-cars/walkers constrained to generated road graph.
+- [x] Build a data-oriented ECS-style loop inside the Worker for hundreds of concurrent agents.
+- [x] Add explicit inter-city roads when two or more stations exist, enabling migration between city clusters.
+- [x] Wire station sociological parameters (population, vitality, decay threshold, active/ghost state) into growth and agent spawning.
 
-## Phase 4: Acoustic Translation & Dynamic Audio (Pending)
-- [ ] Map demographic counters from the Worker to `AudioEngine`.
-- [ ] Program generative granular synthesis mapped to pedestrian volume (Burbujeo).
-- [ ] Program low-pass noise drone mapped to traffic density (Zumbido).
-- [ ] Implement audio state modifiers for Expansion, Stagnation, Gridlock, and Ruin (distortions, reverbs, clipping).
+## Phase 4: Acoustic Translation & Dynamic Audio (Complete)
+- [x] Map demographic counters from the Worker to `AudioEngine` (walkers, cars, pressure, vitality, strain, urban state).
+- [x] Program generative granular-style synthesis mapped to pedestrian volume (Burbujeo).
+- [x] Program low-pass noise drone mapped to traffic density (Zumbido).
+- [x] Implement audio state modifiers for Expansion, Stagnation, Gridlock, and Ruin (drive/distortion, filters, ruin-space delay/feedback).
 
 ## Phase 5: "What-If" Gameplay Mechanics (Drag & Drop) (Pending)
 - [ ] Implement logic for "Core Break/Orphaning" when dragging a station away from its city.
@@ -35,3 +50,10 @@
 - [ ] Implement "Resurrection" of ruins by placing a live station in them.
 - [ ] Implement "Induced Overpopulation" (Meltdown) when squishing stations together.
 - [ ] Elastic train tracks vs static road breaks parsing logic.
+
+## Phase 6: Stabilization, QA & Release Hardening (Complete)
+- [x] Align worker/app memory protocol constants for city pixel buffers (size consistency).
+- [x] Expose simulation runtime counters (cities/nodes/roads/physics) in Creation UI for live diagnostics.
+- [x] Keep physics layer optional with graceful fallback if CDN is unavailable.
+- [x] Run full syntax checks over all JavaScript modules.
+- [x] Run workspace error scan on critical JS/docs files and resolve blocking issues.

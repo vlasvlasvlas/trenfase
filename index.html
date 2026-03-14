@@ -87,6 +87,40 @@
               <button class="btn btn--small" id="btn-state-inactive">Off</button>
               <button class="btn btn--small" id="btn-state-ghost">Ghost</button>
             </div>
+            <div id="station-lock-note" style="display:none; margin-top:8px; font-size:0.72rem; color:var(--color-ring-track);">
+              Station locked: this predefined city cannot be modified or deleted.
+            </div>
+          </div>
+
+          <div class="control-group" id="section-station-identity" style="margin-top:20px;">
+            <span class="control-group__label">Station Identity</span>
+            <div class="slider-row" style="margin-top:8px;">
+              <label>Name</label>
+              <input type="text" id="station-name" placeholder="Station name" style="flex:1; min-width:0;">
+            </div>
+            <div class="slider-row" style="margin-top:8px;">
+              <label>Code</label>
+              <input type="text" id="station-code" placeholder="ST-01" style="flex:1; min-width:0;">
+            </div>
+          </div>
+
+          <div class="control-group" id="section-station-town" style="margin-top:20px;">
+            <span class="control-group__label">Town Dynamics</span>
+            <div class="slider-row" style="margin-top:8px;">
+              <label>Population</label>
+              <input type="range" id="town-population" min="0" max="1000" value="0">
+              <span class="value" id="town-population-val">0</span>
+            </div>
+            <div class="slider-row">
+              <label>Vitality</label>
+              <input type="range" id="town-vitality" min="0" max="100" value="50">
+              <span class="value" id="town-vitality-val">0.50</span>
+            </div>
+            <div class="slider-row">
+              <label>Decay</label>
+              <input type="range" id="town-decay-threshold" min="0" max="100" value="80">
+              <span class="value" id="town-decay-threshold-val">0.80</span>
+            </div>
           </div>
 
           <!-- Trim -->
@@ -102,6 +136,7 @@
               <input type="file" id="station-audio-upload" accept="audio/*" style="display:none;">
               <button class="btn btn--small" id="btn-audio-upload" style="flex:1;">📂 Upload WAV/MP3</button>
               <button class="btn btn--small" id="btn-audio-record" style="flex:1; background:var(--color-bg); color:#ff4444; border-color:#ff4444;">🎤 Record Mic</button>
+              <button class="btn btn--small" id="btn-audio-export" style="flex:1;">💾 Export Audio</button>
             </div>
             <span id="custom-audio-status" style="font-size: 0.75rem; color:var(--color-accent);"></span>
           </div>
@@ -153,6 +188,10 @@
               <input type="range" id="fx-filter-q" min="1" max="150" value="10">
               <span class="value" id="fx-filter-q-val">1.0</span>
             </div>
+          </div>
+
+          <div class="control-group" id="section-station-danger" style="margin-top:20px;">
+            <button class="btn btn--small" id="btn-delete-station" style="width:100%; border-color:var(--color-ring-track); color:var(--color-ring-track);">Delete Station ✕</button>
           </div>
         </div>
 
@@ -303,6 +342,27 @@
 
           <div id="menu-content-creation" style="display:none; margin-top:16px;">
             <div class="control-group">
+              <span class="control-group__label">Gestor de Ciudades</span>
+              <div class="slider-row" style="margin-top:8px;">
+                <label>Ciudad</label>
+                <input type="text" id="creator-city-name" placeholder="Nombre de ciudad" style="flex:1; min-width:0;">
+              </div>
+              <div class="slider-row" style="margin-top:8px;">
+                <label>Guardadas</label>
+                <select id="creator-city-select" style="flex:1; padding:2px;"></select>
+              </div>
+              <div class="btn-row" style="margin-top:8px;">
+                <button class="btn btn--small" id="creator-city-new">New City</button>
+                <button class="btn btn--small" id="creator-city-save">Save City</button>
+                <button class="btn btn--small" id="creator-city-load">Load City</button>
+                <button class="btn btn--small" id="creator-city-delete">Delete City</button>
+                <button class="btn btn--small" id="creator-city-rename">Rename City</button>
+                <button class="btn btn--small" id="creator-city-duplicate">Duplicate City</button>
+              </div>
+              <div id="creator-city-status" class="creation-warning" style="margin-top:8px;"></div>
+            </div>
+
+            <div class="control-group">
               <span class="control-group__label">Espacio de Creación</span>
               <button class="btn btn--small" id="creation-enable">Enable Creation Mode</button>
             </div>
@@ -344,7 +404,24 @@
                   <option value="eco">Eco</option>
                 </select>
               </div>
+              <div class="slider-row" style="margin-top:8px;">
+                <label>Crecimiento</label>
+                <select id="creation-growth-profile" style="flex:1; padding:2px;">
+                  <option value="slow">Lento</option>
+                  <option value="balanced">Balanceado</option>
+                  <option value="dense">Organico denso</option>
+                </select>
+              </div>
+              <div id="creation-growth-help" class="creation-warning" style="margin-top:6px;"></div>
               <div class="creation-warning" id="creation-warning"></div>
+            </div>
+
+            <div class="control-group" style="margin-top:14px;">
+              <span class="control-group__label">Sim Goals (Phase 5)</span>
+              <div class="slider-row"><label>Score</label><span class="value" id="gameplay-score">0</span></div>
+              <div class="slider-row"><label>Goal</label><span class="value" id="gameplay-goal">Expandir ciudad</span></div>
+              <div class="slider-row"><label>State</label><span class="value" id="gameplay-state">stagnation</span></div>
+              <div id="gameplay-events" class="creation-warning" style="margin-top:8px;"></div>
             </div>
 
             <div class="control-group" style="margin-top:14px;">
@@ -361,6 +438,7 @@
                 <button class="btn btn--small" id="creation-import">Import JSON</button>
                 <button class="btn btn--small" id="creation-save-local">Save Local</button>
                 <button class="btn btn--small" id="creation-load-local">Load Local</button>
+                <button class="btn btn--small" id="creation-delete-local">Delete Local Save</button>
               </div>
               <textarea id="creation-json" class="creation-json" placeholder="Scene JSON..."></textarea>
             </div>

@@ -147,16 +147,21 @@ body.is-fullscreen .header {
 
 .station-label {
   font-family: var(--font-primary);
-  font-size: var(--font-size-station);
-  font-weight: var(--font-weight-station);
-  fill: var(--color-text-dim);
+  font-size: clamp(0.82rem, 1.05vw, 1.08rem);
+  font-weight: 700;
+  fill: #ffffff;
+  stroke: rgba(120, 120, 120, 0.95);
+  stroke-width: 1.2px;
+  paint-order: stroke fill;
+  filter: drop-shadow(0 1px 1px rgba(80, 80, 80, 0.75));
+  letter-spacing: 0.02em;
   transition: fill var(--transition-fast);
   user-select: none;
   pointer-events: none;
 }
 
 .station-group:hover .station-label {
-  fill: var(--color-text);
+  fill: #ffffff;
 }
 
 .train-dot {

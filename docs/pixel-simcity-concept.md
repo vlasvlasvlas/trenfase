@@ -76,8 +76,9 @@ El usuario puede alterar radicalmente el paisaje moviendo las estaciones creadas
 ### ✅ Fases Completadas (Cimientos Estabilizados)
 1. **Fase 1 (Foundation & UX):** Reseteo del proyecto a un baseline estable de V1. Integración de audio personalizado (WAV/Mic). UI mejorada para modo dual (Yamanote vs Creador).
 2. **Fase 2 (Motor Ecosistémico):** Creación del hilo en paralelo (`city-engine.worker.js`) y el motor de renderizado de alta velocidad vía `Float32Array`. Renderizado visual de estaciones plantadas manualmente con colisiones de audio funcionando.
+3. **Fase 3 (Algoritmos Generativos):** Implementación del crecimiento procedural multi-ciudad (Space-Colonization inspired), pathfinding A* para peatones/autos sobre la red vial y loop de simulación data-oriented con soporte de física opcional.
+4. **Fase 4 (Traducción Acústica):** Integración de métricas demográficas del Worker con `AudioEngine`, burbujeo granular peatonal, dron de tráfico de baja frecuencia y estados acústicos Expansion/Stagnation/Gridlock/Ruin.
+5. **Fase 6 (Stabilization & QA):** Cierre de hardening técnico (protocolo Worker/UI, validaciones de sintaxis y control de errores), dejando base estable para la fase final de gameplay.
 
 ### 🚧 Próximo Horizonte (El Ecosistema)
-1. **Fase 3 (Algoritmos Generativos):** Construcción del *Space Colonization* para generar las ciudades visualmente desde las estaciones, y *Pathfinding* para los caminantes.
-2. **Fase 4 (Traducción Acústica):** Mapeo de densidad peatonal y de tráfico a sintetizadores de audio dinámicos (Granular/Drones).
-3. **Fase 5 (Gameplay y What-Ifs):** Implementación compleja de romper ecosistemas interactuando espacialmente (Drag & Drop de estaciones).
+1. **Fase 5 (Gameplay y What-Ifs):** Implementación compleja de romper ecosistemas interactuando espacialmente (Drag & Drop de estaciones).

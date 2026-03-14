@@ -159,21 +159,38 @@ class ColorBackground {
     this.ctx.fillStyle = 'rgba(26, 26, 26, 0.08)';
     this.ctx.fillRect(0, 0, width, height);
 
-    // Render City Engine Pixels (Phase 2)
+    // Render City Engine Pixels (Phase 2/3)
     if (cityBuffer) {
-      this.ctx.fillStyle = 'rgba(200, 255, 200, 0.8)'; // Temporary dot color
+      const colorForKind = (kind, alpha) => {
+        switch (Math.round(kind)) {
+          case 1: return `rgba(118, 168, 150, ${alpha * 0.7})`; // local road
+          case 2: return `rgba(239, 218, 146, ${alpha})`; // hub
+          case 3: return `rgba(201, 235, 255, ${alpha})`; // walker
+          case 4: return `rgba(255, 208, 146, ${alpha})`; // car
+          case 5: return `rgba(170, 226, 190, ${alpha})`; // intercity road
+          case 6: return `rgba(158, 186, 176, ${alpha})`; // block/building
+          default: return `rgba(196, 220, 196, ${alpha * 0.75})`;
+        }
+      };
+
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'lighter';
       let i = 0;
       while (i < cityBuffer.length) {
         const x = cityBuffer[i];
         const y = cityBuffer[i+1];
-        // const color = cityBuffer[i+2]; // reserved for future
+        const kind = cityBuffer[i+2];
         const alpha = cityBuffer[i+3];
         
         if (alpha > 0) { // Only read active pixels
-          this.ctx.fillRect(x, y, 2, 2);
+          this.ctx.fillStyle = colorForKind(kind, alpha);
+          const k = Math.round(kind);
+          const size = k === 2 ? 1.7 : (k === 6 ? 1.25 : (k === 4 ? 1.9 : (k === 3 ? 1.2 : 0.95)));
+          this.ctx.fillRect(x - size * 0.5, y - size * 0.5, size, size);
         }
         i += 4; // floatsPerPixel
       }
+      this.ctx.restore();
     }
 
     let avgAmplitude = 0;
