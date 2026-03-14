@@ -775,12 +775,30 @@ class App {
   }
 
   _setCreationEnabled(enabled) {
+    const wasEnabled = this.creation.enabled;
     this.creation.enabled = enabled;
+    if (!enabled && wasEnabled) {
+      this._cancelCreationInteraction();
+    }
+    if (this.bg && typeof this.bg.setWallDrawingEnabled === 'function') {
+      this.bg.setWallDrawingEnabled(enabled);
+    }
     const btn = document.getElementById('creation-enable');
     const canvas = document.getElementById('bg-canvas');
     btn.textContent = enabled ? 'Disable Creation Mode' : 'Enable Creation Mode';
     btn.classList.toggle('btn--active', enabled);
     canvas.classList.toggle('creation-active', enabled);
+  }
+
+  _cancelCreationInteraction() {
+    this.creation.isPointerDown = false;
+    this.creation.pointerStart = null;
+    this.creation.dragStart = null;
+    this.creation.dragMode = null;
+    this.creation.dragEntityId = null;
+    this.creation.draftSegment = null;
+    this.creation.dragUndoPushed = false;
+    this.creation.dragMoved = false;
   }
 
   _setCreationTool(tool) {
@@ -1322,6 +1340,10 @@ class App {
   }
 
   _onCreationPointerMove(e) {
+    if (!this.creation.enabled && this.creation.isPointerDown) {
+      this._cancelCreationInteraction();
+      return;
+    }
     if (!this.creation.enabled || !this.creation.isPointerDown) return;
     const p = this._eventToCanvasPoint(e);
     if (!p) return;
@@ -1358,7 +1380,12 @@ class App {
   }
 
   _onCreationPointerUp(e) {
-    if (!this.creation.enabled || !this.creation.isPointerDown) return;
+    if (!this.creation.isPointerDown) return;
+    if (!this.creation.enabled) {
+      this._cancelCreationInteraction();
+      this._renderCreationUI();
+      return;
+    }
     const p = this._eventToCanvasPoint(e);
 
     if (this.creation.dragMode === 'draw-segment' && this.creation.draftSegment && p) {
@@ -1382,12 +1409,7 @@ class App {
       }
     }
 
-    this.creation.isPointerDown = false;
-    this.creation.dragMode = null;
-    this.creation.dragEntityId = null;
-    this.creation.draftSegment = null;
-    this.creation.dragUndoPushed = false;
-    this.creation.dragMoved = false;
+    this._cancelCreationInteraction();
     this._renderCreationUI();
   }
 

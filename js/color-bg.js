@@ -11,6 +11,7 @@ class ColorBackground {
     this.glowPoints = [];
     this.walls = [];
     this.wallType = 'solid'; // 'solid' or 'dashed'
+    this.wallDrawingEnabled = true;
     this.isDrawingWall = false;
     this.currentWall = null; // {x1, y1, x2, y2}
 
@@ -24,6 +25,7 @@ class ColorBackground {
   }
 
   _onMouseDown(e) {
+    if (!this.wallDrawingEnabled) return;
     if (!e.shiftKey) return;
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -33,6 +35,10 @@ class ColorBackground {
   }
 
   _onMouseMove(e) {
+    if (!this.wallDrawingEnabled && this.isDrawingWall) {
+      this._cancelWallDrawing();
+      return;
+    }
     if (!this.isDrawingWall || !this.currentWall) return;
     const rect = this.canvas.getBoundingClientRect();
     this.currentWall.x2 = e.clientX - rect.left;
@@ -41,6 +47,10 @@ class ColorBackground {
 
   _onMouseUp(e) {
     if (!this.isDrawingWall) return;
+    if (!this.wallDrawingEnabled) {
+      this._cancelWallDrawing();
+      return;
+    }
     this.isDrawingWall = false;
     
     if (this.currentWall) {
@@ -80,6 +90,18 @@ class ColorBackground {
 
   setWallType(type) {
     this.wallType = type;
+  }
+
+  setWallDrawingEnabled(enabled) {
+    this.wallDrawingEnabled = !!enabled;
+    if (!this.wallDrawingEnabled) {
+      this._cancelWallDrawing();
+    }
+  }
+
+  _cancelWallDrawing() {
+    this.isDrawingWall = false;
+    this.currentWall = null;
   }
 
   clearWalls() {

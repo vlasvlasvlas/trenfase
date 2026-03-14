@@ -296,8 +296,8 @@ body.is-fullscreen .header {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 180px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .creation-entity-item {
@@ -676,6 +676,34 @@ input[type="range"]::-webkit-slider-thumb {
 
 .accordion.open .accordion__body {
   display: block;
+}
+
+/* Creation inspector: more vertical air and easier slider grabbing */
+.accordion__body .slider-row {
+  min-height: 30px;
+  margin-bottom: 8px;
+}
+
+.accordion__body .slider-row:last-child {
+  margin-bottom: 0;
+}
+
+.accordion__body input[type="range"] {
+  height: 6px;
+}
+
+.accordion__body input[type="range"]::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+}
+
+.accordion__body input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-bg);
+  border-radius: 0;
+  background: var(--color-slider-thumb);
+  cursor: pointer;
 }
 
 /* === Master controls bottom bar === */
