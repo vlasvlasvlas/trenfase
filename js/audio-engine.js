@@ -217,10 +217,20 @@ class AudioEngine {
     osc2.start();
     subOsc.start();
 
+    // LFO tremolo — rate controlled by soundRate
+    const lfoOsc = this.ctx.createOscillator();
+    lfoOsc.type = 'sine';
+    lfoOsc.frequency.value = 1.0; // Hz, updated from soundRate
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 0; // silent until drone is running
+    lfoOsc.connect(lfoGain);
+    lfoGain.connect(droneGain.gain); // modulates the main gain AudioParam
+    lfoOsc.start();
+
     const droneData = {
       gainNode: droneGain,
       filterNode: droneFilter,
-      osc1, osc2, subOsc,
+      osc1, osc2, subOsc, lfoOsc, lfoGain,
       isRunning: false
     };
 
@@ -233,11 +243,13 @@ class AudioEngine {
     const drone = this.ensureTrainDrone(train.id);
     if (!drone) return;
 
-    if (!train.soundEnabled || !train.droneEnabled || train.speed <= 0.00001) {
+    if (!train.droneEnabled || train.speed <= 0.00001) {
       // Fade out
       if (drone.isRunning) {
         drone.gainNode.gain.cancelScheduledValues(this.ctx.currentTime);
         drone.gainNode.gain.setTargetAtTime(0, this.ctx.currentTime, 0.5);
+        drone.lfoGain.gain.cancelScheduledValues(this.ctx.currentTime);
+        drone.lfoGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.5);
         drone.isRunning = false;
       }
       return;
@@ -272,6 +284,13 @@ class AudioEngine {
     const tone = train.soundTone || 0.5;
     const filterTarget = 100 + (tone * 800) + (normalizedSpeed * 2000);
     drone.filterNode.frequency.setTargetAtTime(filterTarget, this.ctx.currentTime, 0.1);
+
+    // LFO tremolo: soundRate (0.1–4.0) maps to 0.1–8 Hz
+    const rate = (train.soundRate || 1.0) * 2;
+    drone.lfoOsc.frequency.setTargetAtTime(rate, this.ctx.currentTime, 0.1);
+    const lfoDepth = train.soundVolume * 0.4; // tremolo depth as fraction of volume
+    drone.lfoGain.gain.cancelScheduledValues(this.ctx.currentTime);
+    drone.lfoGain.gain.setTargetAtTime(lfoDepth, this.ctx.currentTime, 0.1);
   }
 
   removeTrainDrone(trainId) {
@@ -283,6 +302,8 @@ class AudioEngine {
         try { drone.osc1.stop(); drone.osc1.disconnect(); } catch (e) {}
         try { drone.osc2.stop(); drone.osc2.disconnect(); } catch (e) {}
         try { drone.subOsc.stop(); drone.subOsc.disconnect(); } catch (e) {}
+        try { drone.lfoOsc.stop(); drone.lfoOsc.disconnect(); } catch (e) {}
+        try { drone.lfoGain.disconnect(); } catch (e) {}
         try { drone.filterNode.disconnect(); } catch (e) {}
         try { drone.gainNode.disconnect(); } catch (e) {}
         this.trainDrones.delete(trainId);

@@ -818,6 +818,7 @@ class App {
   _renderCreationEntityList() {
     const list = document.getElementById('creation-entity-list');
     if (!list) return;
+    this._activeAccordionBodyId = null;
     list.innerHTML = '';
 
     if (this.creation.entities.length === 0) {
@@ -1585,6 +1586,7 @@ class App {
       if (this.creation.uiRefreshMs >= 300) {
         this.creation.uiRefreshMs = 0;
         this._renderCreationEntityList();
+        this._renderCreationInspector();
       }
     } else {
       this.creation.uiRefreshMs = 0;
