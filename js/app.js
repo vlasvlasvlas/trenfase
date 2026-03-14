@@ -4,13 +4,6 @@
  * per-train rhythmic sound, slower speed, and rounded-rect layout
  */
 
-import { STATIONS } from './stations.js';
-import { AudioEngine } from './audio-engine.js';
-import { TrainManager } from './train.js';
-import { Ring } from './ring.js';
-import { ColorBackground } from './color-bg.js';
-import { TrimEditor } from './trim-editor.js';
-
 class App {
   constructor() {
     this.audio = new AudioEngine();
@@ -18,7 +11,9 @@ class App {
     this.ring = null;
     this.bg = null;
     this.trimEditor = null;
-    this.stations = STATIONS;
+    this.trimEditor = null;
+    this.stations = []; // Now set based on mode
+    this.mode = 'yamanote'; // 'yamanote' | 'creator'
     this.running = false;
     this.lastTime = 0;
     this.selectedStation = null;
@@ -76,16 +71,39 @@ class App {
 
   async init() {
     const loadingBar = document.getElementById('loading-bar');
-    const startBtn = document.getElementById('start-btn');
+    const loadingBarContainer = document.getElementById('loading-bar-container');
+    const modeSelection = document.getElementById('mode-selection');
+    const btnYamanote = document.getElementById('btn-mode-yamanote');
+    const btnCreator = document.getElementById('btn-mode-creator');
 
+    // First load audio context
     this.audio.init();
     loadingBar.style.width = '20%';
 
-    await this.audio.loadAll(this.stations);
+    // Instead of loading all stations right away, we give the user the choice
     loadingBar.style.width = '100%';
+    setTimeout(() => {
+      loadingBarContainer.style.display = 'none';
+      modeSelection.style.display = 'flex';
+    }, 500);
 
-    startBtn.style.display = 'block';
-    startBtn.addEventListener('click', () => this._start());
+    btnYamanote.addEventListener('click', async () => {
+      modeSelection.style.display = 'none';
+      loadingBarContainer.style.display = 'block';
+      this.mode = 'yamanote';
+      this.stations = STATIONS;
+      
+      loadingBar.style.width = '50%';
+      await this.audio.loadAll(this.stations);
+      loadingBar.style.width = '100%';
+      this._start();
+    });
+
+    btnCreator.addEventListener('click', () => {
+      this.mode = 'creator';
+      this.stations = []; // Empty canvas
+      this._start();
+    });
   }
 
   _start() {
@@ -101,7 +119,7 @@ class App {
     this.bg = new ColorBackground('bg-canvas');
     this.viewportSize = this._getCanvasViewportSize();
 
-    // Init ring (now rounded rectangle)
+    // Init ring (now rounded rectangle or empty canvas if creator mode)
     this.ring = new Ring('ring-container', this.stations, 
       (station) => this._onStationClick(station),
       (train) => this._onTrainClick(train)
@@ -111,8 +129,11 @@ class App {
     // Init trim editor
     this.trimEditor = new TrimEditor('trim-editor', this.audio);
 
-    // Add first train at default UI speed (0.25)
-    this.trains.addTrain(this._uiSpeedToActual(this.defaultUiSpeed), 1, this._onTrainClack);
+    // Only add a default train if in Yamanote mode
+    if (this.mode === 'yamanote') {
+      this.trains.addTrain(this._uiSpeedToActual(this.defaultUiSpeed), 1, this._onTrainClack);
+    }
+    
     this._renderTrainControls();
 
     this._setupControls();
@@ -578,6 +599,103 @@ class App {
       document.getElementById('fx-filter-q-val').textContent = this.selectedStation.fx.filterQ.toFixed(1);
     });
 
+    // === Custom Audio (Pixel SimCity Expansion) ===
+    const btnUpload = document.getElementById('btn-audio-upload');
+    const uploadInput = document.getElementById('station-audio-upload');
+    const btnRecord = document.getElementById('btn-audio-record');
+    const customAudioStatus = document.getElementById('custom-audio-status');
+
+    btnUpload.addEventListener('click', () => {
+      if (!this.selectedStation) return;
+      uploadInput.click();
+    });
+
+    uploadInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file || !this.selectedStation) return;
+      
+      try {
+        customAudioStatus.textContent = 'Decodificando audio...';
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await this.audio.ctx.decodeAudioData(arrayBuffer);
+        
+        // Store buffer in AudioEngine against this specific station ID
+        this.audio.buffers[this.selectedStation.id] = audioBuffer;
+        
+        // Ensure the station points to its own ID instead of the default name mapping
+        this.selectedStation.customAudioId = this.selectedStation.id;
+        
+        customAudioStatus.textContent = 'Audio cargado ✓';
+        customAudioStatus.style.color = 'var(--color-success)';
+        setTimeout(() => customAudioStatus.textContent = '', 3000);
+      } catch (err) {
+        console.error("Error decoding custom audio", err);
+        customAudioStatus.textContent = 'Error al cargar';
+        customAudioStatus.style.color = '#ff4444';
+      }
+      uploadInput.value = ''; // Reset
+    });
+
+    // Recording logic state variables
+    let mediaRecorder = null;
+    let audioChunks = [];
+
+    btnRecord.addEventListener('click', async () => {
+      if (!this.selectedStation) return;
+
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        // Stop recording
+        mediaRecorder.stop();
+        btnRecord.textContent = '🎤 Record Mic';
+        btnRecord.style.background = 'var(--color-bg)';
+        btnRecord.style.color = '#ff4444';
+        customAudioStatus.textContent = 'Procesando...';
+      } else {
+        // Start recording
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            stream.getTracks().forEach(t => t.stop()); // Stop microphone access
+            
+            try {
+              const arrayBuffer = await blob.arrayBuffer();
+              const audioBuffer = await this.audio.ctx.decodeAudioData(arrayBuffer);
+              
+              this.audio.buffers[this.selectedStation.id] = audioBuffer;
+              this.selectedStation.customAudioId = this.selectedStation.id;
+              
+              customAudioStatus.textContent = 'Audio grabado ✓';
+              customAudioStatus.style.color = 'var(--color-success)';
+              setTimeout(() => customAudioStatus.textContent = '', 3000);
+            } catch (err) {
+              console.error('Error decoding recording', err);
+              customAudioStatus.textContent = 'Error al grabar';
+              customAudioStatus.style.color = '#ff4444';
+            }
+          };
+
+          mediaRecorder.start();
+          btnRecord.textContent = '⏹ Stop';
+          btnRecord.style.background = '#ff4444';
+          btnRecord.style.color = 'var(--color-bg)';
+          customAudioStatus.textContent = 'Grabando...';
+          customAudioStatus.style.color = '#ff4444';
+        } catch (err) {
+          console.error('Microphone access denied', err);
+          customAudioStatus.textContent = 'Mic denied';
+          customAudioStatus.style.color = '#ff4444';
+        }
+      }
+    });
+
     // === Train Edit Panel Controls ===
     document.getElementById('train-edit-dir').addEventListener('click', (e) => {
       if (!this.selectedTrain) return;
@@ -784,7 +902,7 @@ class App {
   }
 
   _setCreationTool(tool) {
-    const allowed = new Set(['select', 'line-solid', 'line-dashed', 'rotating-line', 'walker', 'walker-waypoint']);
+    const allowed = new Set(['select', 'station', 'line-solid', 'line-dashed', 'rotating-line', 'walker', 'walker-waypoint']);
     this.creation.tool = allowed.has(tool) ? tool : 'select';
     document.querySelectorAll('.creation-tool').forEach((btn) => {
       btn.classList.toggle('btn--active', btn.getAttribute('data-tool') === this.creation.tool);
@@ -1293,6 +1411,41 @@ class App {
       const walker = this._createWalkerEntity(p.x, p.y);
       this.creation.entities.push(walker);
       this._selectCreationEntity(walker.id);
+      this.creation.isPointerDown = false;
+      this._renderCreationUI();
+      return;
+    }
+
+    if (this.creation.tool === 'station') {
+      // In Creator mode, add a new station to this.stations array
+      this._pushCreationUndo();
+      
+      const newStation = {
+        id: `station-${Date.now()}`,
+        name: `Station ${this.stations.length + 1}`,
+        x: p.x,
+        y: p.y,
+        note: 60,       // Default MIDI Note (C4)
+        type: 'major',
+        ringRadius: 15,
+        // UI Defaults (SimCity Expansion variables)
+        population: 0,
+        vitality: 0.5,
+        decayThreshold: 0.8
+      };
+      
+      this.stations.push(newStation);
+      
+      // Select it in the standard UI
+      this.selectedStation = newStation;
+      if (this.ring) {
+        this.ring.stations = this.stations; // ensure sync
+        this.ring.render();
+      }
+      this.menuTab = 'station';
+      this._renderMenu();
+      this._openPanel();
+      
       this.creation.isPointerDown = false;
       this._renderCreationUI();
       return;

@@ -23,12 +23,23 @@
 
   <!-- Loading Screen -->
   <div class="loading" id="loading-screen">
-    <div class="loading__title">TRENFASE</div>
-    <div class="loading__subtitle">山手線サウンドマシン</div>
-    <div class="loading__progress">
-      <div class="loading__bar" id="loading-bar"></div>
+    <div class="loading-content">
+      <h1>TRENFASE</h1>
+      <p style="margin-bottom: 2rem; color:var(--color-text-dim);">Entorno rítmico iterativo y motor de hábitats sonoros.</p>
+      
+      <div id="loading-bar-container">
+        <div id="loading-bar"></div>
+      </div>
+      
+      <div id="mode-selection" style="display: none; flex-direction: column; gap: 1rem; margin-top: 2rem;">
+        <button id="btn-mode-yamanote" class="btn" style="padding: 1rem; font-size: 1.1rem;">
+          ▶ Explorar YAMANOTE (Clásico)
+        </button>
+        <button id="btn-mode-creator" class="btn" style="padding: 1rem; font-size: 1.1rem; border-color: var(--color-success); color: var(--color-success);">
+          ✚ Crear Ciudad (Pixel-SimCity)
+        </button>
+      </div>
     </div>
-    <button class="btn loading__start" id="start-btn">出発進行</button>
   </div>
 
   <!-- Main App -->
@@ -93,6 +104,17 @@
           <div class="control-group" id="section-trim" style="margin-top:20px;">
             <span class="control-group__label">Trim</span>
             <div id="trim-editor"></div>
+          </div>
+
+          <!-- Custom Audio (Pixel-SimCity Expansion) -->
+          <div class="control-group" id="section-custom-audio" style="margin-top:20px; display:none;">
+            <span class="control-group__label">Custom Audio</span>
+            <div class="btn-row" style="margin-bottom: 8px;">
+              <input type="file" id="station-audio-upload" accept="audio/*" style="display:none;">
+              <button class="btn btn--small" id="btn-audio-upload" style="flex:1;">📂 Upload WAV/MP3</button>
+              <button class="btn btn--small" id="btn-audio-record" style="flex:1; background:var(--color-bg); color:#ff4444; border-color:#ff4444;">🎤 Record Mic</button>
+            </div>
+            <span id="custom-audio-status" style="font-size: 0.75rem; color:var(--color-accent);"></span>
           </div>
 
           <!-- Volume & Pitch -->
@@ -300,6 +322,7 @@
               <span class="control-group__label">Herramientas</span>
               <div class="btn-row">
                 <button class="btn btn--small creation-tool" id="creation-tool-select" data-tool="select">Select</button>
+                <button class="btn btn--small creation-tool" id="creation-tool-station" data-tool="station" style="color:var(--color-bg); background:var(--color-accent);">Station</button>
                 <button class="btn btn--small creation-tool" id="creation-tool-line" data-tool="line-solid">Line Solid</button>
                 <button class="btn btn--small creation-tool" id="creation-tool-dashed" data-tool="line-dashed">Line Dashed</button>
                 <button class="btn btn--small creation-tool" id="creation-tool-rotating" data-tool="rotating-line">Rotating</button>
