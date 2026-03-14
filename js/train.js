@@ -75,19 +75,39 @@ class Train {
 
   /**
    * Check if the train is close enough to trigger a station
-   * @param {Object} station - Station with .angle property
+   * @param {Object} station - Station with .angle or explicit x,y properties
+   * @param {Object} trainPos - (Optional) The current {x,y} screen coordinates of the train
    * @returns {boolean}
    */
-  shouldTrigger(station) {
+  shouldTrigger(station, trainPos = null) {
     if (this.triggeredStations.has(station.id)) return false;
 
-    const diff = Math.abs(this.angle - station.angle);
-    const wrappedDiff = Math.min(diff, 360 - diff);
-
-    if (wrappedDiff < this.triggerThreshold) {
-      this.triggeredStations.add(station.id);
-      return true;
+    // Euclidean distance check for explicit (x,y) Creator mode stations
+    if (trainPos && station.x != null && station.y != null) {
+      const dx = trainPos.x - station.x;
+      const dy = trainPos.y - station.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      // If the train is within the station's ring radius (plus a bit of tolerance), trigger it
+      const triggerDist = (station.ringRadius || 15) + 10;
+      if (dist < triggerDist) {
+        this.triggeredStations.add(station.id);
+        return true;
+      }
+      return false;
     }
+
+    // Fallback/Yamanote Mode: Angle based trigger
+    if (station.angle != null) {
+      const diff = Math.abs(this.angle - station.angle);
+      const wrappedDiff = Math.min(diff, 360 - diff);
+
+      if (wrappedDiff < this.triggerThreshold) {
+        this.triggeredStations.add(station.id);
+        return true;
+      }
+    }
+    
     return false;
   }
 

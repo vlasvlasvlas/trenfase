@@ -187,10 +187,13 @@ class App {
     this._updateCreation(deltaTime);
 
     for (const train of this.trains.getAll()) {
+      const trainT = train.angle / 360;
+      const trainPos = this.ring._getPointAtT(trainT);
+
       for (const station of this.stations) {
         const shouldReact = station.active || station.ghost;
         if (!shouldReact) continue;
-        if (!train.shouldTrigger(station)) continue;
+        if (!train.shouldTrigger(station, trainPos)) continue;
 
         // Ghost stations react visually but stay muted.
         if (station.active && !station.ghost) {

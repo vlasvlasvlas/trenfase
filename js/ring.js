@@ -72,7 +72,9 @@ class Ring {
 
     // Draw stations
     this.stations.forEach((station) => {
-      const pos = this._getPointAtT(station.t);
+      const isManual = (station.x != null && station.y != null);
+      const pos = isManual ? { x: station.x, y: station.y } : this._getPointAtT(station.t);
+      
       const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       group.setAttribute('class', 'station-group');
       group.setAttribute('data-station', station.id);
@@ -97,13 +99,16 @@ class Ring {
 
       // Label
       const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      const labelPos = this._getLabelPosition(pos, station.t);
+      const labelPos = isManual 
+        ? { x: pos.x, y: pos.y + 18, anchor: 'middle', baseline: 'hanging' } 
+        : this._getLabelPosition(pos, station.t);
+        
       label.setAttribute('x', labelPos.x);
       label.setAttribute('y', labelPos.y);
       label.setAttribute('class', 'station-label');
       label.setAttribute('text-anchor', labelPos.anchor);
       label.setAttribute('dominant-baseline', labelPos.baseline);
-      label.textContent = station.nameJp;
+      label.textContent = station.name || station.nameJp; // fallback to generic name if jp undefined
 
       hitArea.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -313,6 +318,9 @@ class Ring {
    * Get screen position of a station for background glow
    */
   getStationScreenPosition(station) {
+    if (station.x != null && station.y != null) {
+      return { x: station.x, y: station.y };
+    }
     return this._getPointAtT(station.t);
   }
 }
