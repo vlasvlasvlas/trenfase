@@ -18,8 +18,16 @@ class App {
     this.ring = null;
     this.bg = null;
     this.trimEditor = null;
-    this.stations = STATIONS;
+    this.trimEditor = null;
+    this.stations = []; // Now set based on mode
+    this.mode = 'yamanote'; // 'yamanote' | 'creator'
     this.running = false;
+    
+    // Pixel-SimCity Phase 2
+    this.cityWorker = null;
+    this.cityBuffer = null;
+    this.cityPixelsRaw = null; // Float32Array to read from
+    
     this.lastTime = 0;
     this.selectedStation = null;
     this.selectedTrain = null;
@@ -76,16 +84,39 @@ class App {
 
   async init() {
     const loadingBar = document.getElementById('loading-bar');
-    const startBtn = document.getElementById('start-btn');
+    const loadingBarContainer = document.getElementById('loading-bar-container');
+    const modeSelection = document.getElementById('mode-selection');
+    const btnYamanote = document.getElementById('btn-mode-yamanote');
+    const btnCreator = document.getElementById('btn-mode-creator');
 
+    // First load audio context
     this.audio.init();
     loadingBar.style.width = '20%';
 
-    await this.audio.loadAll(this.stations);
+    // Instead of loading all stations right away, we give the user the choice
     loadingBar.style.width = '100%';
+    setTimeout(() => {
+      loadingBarContainer.style.display = 'none';
+      modeSelection.style.display = 'flex';
+    }, 500);
 
-    startBtn.style.display = 'block';
-    startBtn.addEventListener('click', () => this._start());
+    btnYamanote.addEventListener('click', async () => {
+      modeSelection.style.display = 'none';
+      loadingBarContainer.style.display = 'block';
+      this.mode = 'yamanote';
+      this.stations = STATIONS;
+      
+      loadingBar.style.width = '50%';
+      await this.audio.loadAll(this.stations);
+      loadingBar.style.width = '100%';
+      this._start();
+    });
+
+    btnCreator.addEventListener('click', () => {
+      this.mode = 'creator';
+      this.stations = []; // Empty canvas
+      this._start();
+    });
   }
 
   _start() {
@@ -111,13 +142,20 @@ class App {
     // Init trim editor
     this.trimEditor = new TrimEditor('trim-editor', this.audio);
 
-    // Add first train at default UI speed (0.25)
-    this.trains.addTrain(this._uiSpeedToActual(this.defaultUiSpeed), 1, this._onTrainClack);
+    // Only add a default train if in Yamanote mode
+    if (this.mode === 'yamanote') {
+      this.trains.addTrain(this._uiSpeedToActual(this.defaultUiSpeed), 1, this._onTrainClack);
+    }
+    
     this._renderTrainControls();
 
     this._setupControls();
     this._setupCreationCanvasEvents();
     this._renderCreationUI();
+
+    if (this.mode === 'creator') {
+      this._initCityWorker();
+    }
 
     this.running = true;
     this.lastTime = performance.now();
@@ -189,9 +227,58 @@ class App {
       };
     });
     const worldData = this._buildCreationRenderData();
-    this.bg.render(analyserData, trainLights, worldData);
+    
+    // Pass everything to the background renderer, including the Float32Array
+    this.bg.render(analyserData, trainLights, worldData, this.cityPixelsRaw);
+
+    // If we have a worker, ask it to compute the next frame into the buffer
+    if (this.cityWorker && this.cityBuffer) {
+      this.cityWorker.postMessage({
+        type: 'FRAME_REQUEST',
+        buffer: this.cityBuffer
+      }, [this.cityBuffer]); // Transfer ownership
+      this.cityBuffer = null; // We lost ownership until it comes back
+    }
 
     requestAnimationFrame(() => this._loop());
+  }
+
+  _initCityWorker() {
+    this.cityWorker = new Worker('js/city-engine.worker.js');
+    
+    // Create a Shared Memory Buffer (or just Transferable ArrayBuffer)
+    // 10,000 pixels * 4 floats * 4 bytes = 160,000 bytes.
+    this.cityBuffer = new ArrayBuffer(10000 * 4 * 4);
+    
+    this.cityWorker.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.type === 'FRAME_DATA') {
+        // Worker finished calculation and transferred buffer back
+        this.cityBuffer = msg.buffer;
+        this.cityPixelsRaw = new Float32Array(this.cityBuffer);
+      }
+    };
+
+    this.cityWorker.postMessage({ type: 'INIT' });
+    this.cityWorker.postMessage({ type: 'START' });
+    
+    // Sync all existing stations immediately
+    for (const station of this.stations) {
+      this._syncStationToWorker(station);
+    }
+  }
+
+  _syncStationToWorker(station) {
+    if (!this.cityWorker || !station) return;
+    this.cityWorker.postMessage({
+      type: 'UPDATE_STATION',
+      station: {
+        id: station.id,
+        x: station.x,
+        y: station.y,
+        active: station.active
+      }
+    });
   }
 
   _onStationClick(station) {
@@ -578,6 +665,103 @@ class App {
       document.getElementById('fx-filter-q-val').textContent = this.selectedStation.fx.filterQ.toFixed(1);
     });
 
+    // === Custom Audio (Pixel SimCity Expansion) ===
+    const btnUpload = document.getElementById('btn-audio-upload');
+    const uploadInput = document.getElementById('station-audio-upload');
+    const btnRecord = document.getElementById('btn-audio-record');
+    const customAudioStatus = document.getElementById('custom-audio-status');
+
+    btnUpload.addEventListener('click', () => {
+      if (!this.selectedStation) return;
+      uploadInput.click();
+    });
+
+    uploadInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file || !this.selectedStation) return;
+      
+      try {
+        customAudioStatus.textContent = 'Decodificando audio...';
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await this.audio.ctx.decodeAudioData(arrayBuffer);
+        
+        // Store buffer in AudioEngine against this specific station ID
+        this.audio.buffers[this.selectedStation.id] = audioBuffer;
+        
+        // Ensure the station points to its own ID instead of the default name mapping
+        this.selectedStation.customAudioId = this.selectedStation.id;
+        
+        customAudioStatus.textContent = 'Audio cargado ✓';
+        customAudioStatus.style.color = 'var(--color-success)';
+        setTimeout(() => customAudioStatus.textContent = '', 3000);
+      } catch (err) {
+        console.error("Error decoding custom audio", err);
+        customAudioStatus.textContent = 'Error al cargar';
+        customAudioStatus.style.color = '#ff4444';
+      }
+      uploadInput.value = ''; // Reset
+    });
+
+    // Recording logic state variables
+    let mediaRecorder = null;
+    let audioChunks = [];
+
+    btnRecord.addEventListener('click', async () => {
+      if (!this.selectedStation) return;
+
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        // Stop recording
+        mediaRecorder.stop();
+        btnRecord.textContent = '🎤 Record Mic';
+        btnRecord.style.background = 'var(--color-bg)';
+        btnRecord.style.color = '#ff4444';
+        customAudioStatus.textContent = 'Procesando...';
+      } else {
+        // Start recording
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            stream.getTracks().forEach(t => t.stop()); // Stop microphone access
+            
+            try {
+              const arrayBuffer = await blob.arrayBuffer();
+              const audioBuffer = await this.audio.ctx.decodeAudioData(arrayBuffer);
+              
+              this.audio.buffers[this.selectedStation.id] = audioBuffer;
+              this.selectedStation.customAudioId = this.selectedStation.id;
+              
+              customAudioStatus.textContent = 'Audio grabado ✓';
+              customAudioStatus.style.color = 'var(--color-success)';
+              setTimeout(() => customAudioStatus.textContent = '', 3000);
+            } catch (err) {
+              console.error('Error decoding recording', err);
+              customAudioStatus.textContent = 'Error al grabar';
+              customAudioStatus.style.color = '#ff4444';
+            }
+          };
+
+          mediaRecorder.start();
+          btnRecord.textContent = '⏹ Stop';
+          btnRecord.style.background = '#ff4444';
+          btnRecord.style.color = 'var(--color-bg)';
+          customAudioStatus.textContent = 'Grabando...';
+          customAudioStatus.style.color = '#ff4444';
+        } catch (err) {
+          console.error('Microphone access denied', err);
+          customAudioStatus.textContent = 'Mic denied';
+          customAudioStatus.style.color = '#ff4444';
+        }
+      }
+    });
+
     // === Train Edit Panel Controls ===
     document.getElementById('train-edit-dir').addEventListener('click', (e) => {
       if (!this.selectedTrain) return;
@@ -802,7 +986,7 @@ class App {
   }
 
   _setCreationTool(tool) {
-    const allowed = new Set(['select', 'line-solid', 'line-dashed', 'rotating-line', 'walker', 'walker-waypoint']);
+    const allowed = new Set(['select', 'station', 'line-solid', 'line-dashed', 'rotating-line', 'walker', 'walker-waypoint']);
     this.creation.tool = allowed.has(tool) ? tool : 'select';
     document.querySelectorAll('.creation-tool').forEach((btn) => {
       btn.classList.toggle('btn--active', btn.getAttribute('data-tool') === this.creation.tool);
@@ -1303,6 +1487,41 @@ class App {
       } else {
         this.creation.dragMode = null;
       }
+      return;
+    }
+
+    if (this.creation.tool === 'station') {
+      // In Creator mode, add a new station to this.stations array
+      this._pushCreationUndo();
+      
+      const newStation = {
+        id: `station-${Date.now()}`,
+        name: `Station ${this.stations.length + 1}`,
+        x: p.x,
+        y: p.y,
+        note: 60,       // Default MIDI Note (C4)
+        type: 'major',
+        ringRadius: 15,
+        // UI Defaults (SimCity Expansion variables)
+        population: 0,
+        vitality: 0.5,
+        decayThreshold: 0.8
+      };
+      
+      this.stations.push(newStation);
+      
+      // Select it in the standard UI
+      this.selectedStation = newStation;
+      if (this.ring) {
+        this.ring.stations = this.stations; // ensure sync
+        this.ring.render();
+      }
+      this.menuTab = 'station';
+      this._renderMenu();
+      this._openPanel();
+      
+      this.creation.isPointerDown = false;
+      this._renderCreationUI();
       return;
     }
 

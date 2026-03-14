@@ -67,9 +67,11 @@ class AudioEngine {
   play(station, reverse = false) {
     if (!this.ctx) return null;
 
+    const audioKey = station.customAudioId || station.id;
+
     const buffer = reverse
-      ? this.reverseBuffers.get(station.id)
-      : this.buffers.get(station.id);
+      ? this.reverseBuffers.get(audioKey) || this.reverseBuffers.get(String(audioKey)) || this.buffers[audioKey]
+      : this.buffers.get(audioKey) || this.buffers.get(String(audioKey)) || this.buffers[audioKey];
     if (!buffer) return null;
 
     this.stop(station.id);
@@ -449,7 +451,7 @@ class AudioEngine {
   // === Utilities ===
 
   getDuration(stationId) {
-    const buffer = this.buffers.get(stationId);
+    const buffer = this.buffers.get(stationId) || this.buffers[stationId];
     return buffer ? buffer.duration : 0;
   }
 

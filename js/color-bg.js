@@ -142,7 +142,7 @@ class ColorBackground {
     );
   }
 
-  render(analyserData, trainLights = [], world = null) {
+  render(analyserData, trainLights = [], world = null, cityBuffer = null) {
     const { width, height } = this.canvas;
     const worldObstacles = world && world.obstacles ? world.obstacles : [];
     const worldWalkers = world && world.walkers ? world.walkers : [];
@@ -158,6 +158,23 @@ class ColorBackground {
     // Fade to dark
     this.ctx.fillStyle = 'rgba(26, 26, 26, 0.08)';
     this.ctx.fillRect(0, 0, width, height);
+
+    // Render City Engine Pixels (Phase 2)
+    if (cityBuffer) {
+      this.ctx.fillStyle = 'rgba(200, 255, 200, 0.8)'; // Temporary dot color
+      let i = 0;
+      while (i < cityBuffer.length) {
+        const x = cityBuffer[i];
+        const y = cityBuffer[i+1];
+        // const color = cityBuffer[i+2]; // reserved for future
+        const alpha = cityBuffer[i+3];
+        
+        if (alpha > 0) { // Only read active pixels
+          this.ctx.fillRect(x, y, 2, 2);
+        }
+        i += 4; // floatsPerPixel
+      }
+    }
 
     let avgAmplitude = 0;
     if (analyserData && analyserData.length > 0) {
