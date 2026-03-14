@@ -25,6 +25,9 @@ class Ring {
   render() {
     this.width = this.container.clientWidth;
     this.height = this.container.clientHeight;
+    this.stationElements.clear();
+    this.labelElements.clear();
+    this.trainElements.clear();
 
     const pad = this.padding;
     const r = this.cornerRadius;
@@ -79,7 +82,8 @@ class Ring {
       dot.setAttribute('cx', pos.x);
       dot.setAttribute('cy', pos.y);
       dot.setAttribute('r', 6);
-      dot.setAttribute('class', 'station-dot station--active');
+      const stateClass = station.ghost ? 'station--ghost' : (station.active ? 'station--active' : 'station--inactive');
+      dot.setAttribute('class', `station-dot ${stateClass}`);
       dot.setAttribute('id', `station-${station.id}`);
 
       // Hit area

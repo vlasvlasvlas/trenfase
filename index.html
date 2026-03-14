@@ -41,7 +41,7 @@
         <div class="header__subtitle">山手線サウンドマシン</div>
       </div>
       <div class="header__controls">
-        <button class="btn btn--small" id="btn-controls" title="Global Settings">⚙️ Settings</button>
+        <button class="btn btn--small" id="btn-controls" title="Main Menu">☰ Menu</button>
       </div>
     </header>
 
@@ -54,26 +54,10 @@
     <!-- Master Bar (bottom) -->
     <div class="master-bar">
       <div class="master-bar__section">
-        <span class="master-bar__label">Master</span>
-        <input type="range" id="master-vol" min="0" max="100" value="80" title="Master Volume">
+        <button class="btn btn--small" id="btn-add-train" title="Add Train">+ 🚃 Nuevo Tren</button>
       </div>
       <div class="master-bar__section">
-        <button class="btn btn--small" id="btn-play" title="Start/Stop">▶</button>
-      </div>
-      <div class="master-bar__section">
-        <button class="btn btn--small" id="btn-add-train" title="Add Train">+ 🚃</button>
-        <button class="btn btn--small" id="btn-remove-train" title="Remove Train">− 🚃</button>
-      </div>
-      <div class="master-bar__section">
-        <span class="master-bar__label">Speed</span>
-        <input type="range" id="speed-slider" min="1" max="100" value="30" title="Global Speed">
-        <span class="value" id="speed-value">0.06</span>
-      </div>
-      <div class="master-bar__section">
-        <button class="btn btn--small" id="btn-direction" title="Toggle Direction">CW →</button>
-      </div>
-      <div class="master-bar__section">
-        <button class="btn btn--small" id="btn-drone" title="Toggle Drone">🔊 Drone</button>
+        <button class="btn btn--small" id="btn-fullscreen" title="Toggle Fullscreen">⛶ Fullscreen</button>
       </div>
       <div class="spacer"></div>
       <div class="master-bar__section">
@@ -173,8 +157,8 @@
             
             <div class="slider-row" style="margin-top:10px;">
               <label>Speed</label>
-              <input type="range" id="train-edit-spd" min="1" max="200" value="50">
-              <span class="value" id="train-edit-spd-val">1.0</span>
+              <input type="range" id="train-edit-spd" min="1" max="1000" value="25">
+              <span class="value" id="train-edit-spd-val">0.25</span>
             </div>
             
             <div class="slider-row" style="margin-top:10px;">
@@ -202,6 +186,35 @@
               <input type="range" id="train-edit-rad" min="50" max="1000" value="300">
               <span class="value" id="train-edit-rad-val">300</span>
             </div>
+
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Sound</label>
+              <button class="btn btn--small" id="train-edit-snd-enabled" style="width:100%;">On</button>
+            </div>
+
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Snd Vol</label>
+              <input type="range" id="train-edit-snd-vol" min="0" max="30" value="8">
+              <span class="value" id="train-edit-snd-vol-val">0.08</span>
+            </div>
+
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Snd Freq</label>
+              <input type="range" id="train-edit-snd-freq" min="20" max="200" value="55">
+              <span class="value" id="train-edit-snd-freq-val">55Hz</span>
+            </div>
+
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Snd Rate</label>
+              <input type="range" id="train-edit-snd-rate" min="10" max="400" value="100">
+              <span class="value" id="train-edit-snd-rate-val">1.00x</span>
+            </div>
+
+            <div class="slider-row" style="margin-top:10px;">
+              <label>Snd Tone</label>
+              <input type="range" id="train-edit-snd-tone" min="0" max="100" value="50">
+              <span class="value" id="train-edit-snd-tone-val">0.50</span>
+            </div>
             
             <div class="slider-row" style="margin-top:20px;">
               <button class="btn btn--small" id="train-edit-remove" style="width:100%; border-color:var(--color-ring-track); color:var(--color-ring-track);">Remove Train ✕</button>
@@ -214,52 +227,143 @@
 
         <!-- SETTINGS VIEW (Drone & Global) -->
         <div id="panel-view-settings" style="display:none;">
-          <div class="control-group">
-            <span class="control-group__label">Global Settings</span>
+          <div class="menu-tabs">
+            <button class="btn btn--small btn--active" id="menu-tab-settings">Settings</button>
+            <button class="btn btn--small" id="menu-tab-creation">Creación</button>
+            <button class="btn btn--small" id="menu-tab-about">¿Qué es esto?</button>
           </div>
 
-          <!-- Drone Controls -->
-          <div class="control-group" style="margin-top:20px;">
-            <span class="control-group__label">🔊 Drone (train ambience)</span>
-            <div class="slider-row" style="margin-top:10px;">
-              <label>Vol</label>
-              <input type="range" id="drone-vol" min="0" max="30" value="8">
-              <span class="value" id="drone-vol-val">0.08</span>
+          <div id="menu-content-settings">
+            <div class="control-group">
+              <span class="control-group__label">Menu General</span>
             </div>
-            <div class="slider-row" style="margin-top:10px;">
-              <label>Freq</label>
-              <input type="range" id="drone-freq" min="20" max="200" value="55">
-              <span class="value" id="drone-freq-val">55Hz</span>
-            </div>
-          </div>
 
-          <!-- Separator -->
-          <hr style="border-color: var(--border-color); border-style: solid; opacity: 0.3; margin: 20px 0;">
-
-          <!-- GLOBAL TRAIN LIST -->
-          <div class="control-group" id="panel-view-global-trains">
-            <span class="control-group__label">🚃 Master Train Controls</span>
-            <button class="btn btn--small" id="btn-add-train-panel" style="margin-top:5px; width:100%;">+ 🚃 Add New Train</button>
-            <div id="train-controls-list" style="margin-top:10px;">
-              <!-- Dynamically populated per-train controls -->
-            </div>
-          </div>
-
-          <!-- Separator -->
-          <hr style="border-color: var(--border-color); border-style: solid; opacity: 0.3; margin: 20px 0;">
-
-          <!-- Environment (Walls) -->
-          <div class="control-group">
-            <span class="control-group__label">🧱 Environment (Shift+Drag)</span>
-            <div class="slider-row" style="margin-top:10px;">
-              <label>Wall Type</label>
-              <div class="btn-row" style="flex:1;">
-                <button class="btn btn--small btn--active" id="wall-type-solid" style="flex:1;">Solid</button>
-                <button class="btn btn--small" id="wall-type-dashed" style="flex:1;">Dashed</button>
+            <div class="control-group" style="margin-top:10px;">
+              <span class="control-group__label">🔉 Master Volume</span>
+              <div class="slider-row">
+                <input type="range" id="master-vol" min="0" max="100" value="80">
+                <span class="value" id="master-vol-value">0.80</span>
               </div>
             </div>
-            <div class="slider-row" style="margin-top:10px;">
-              <button class="btn btn--small" id="btn-clear-walls" style="width:100%; border-color:var(--color-ring-track); color:var(--color-ring-track);">Clear All Walls</button>
+
+            <!-- GLOBAL TRAIN LIST -->
+            <div class="control-group" id="panel-view-global-trains" style="margin-top:20px;">
+              <span class="control-group__label">🚃 Controles por Tren</span>
+              <div id="train-controls-list" style="margin-top:10px;">
+                <!-- Dynamically populated per-train controls -->
+              </div>
+            </div>
+
+          </div>
+
+          <div id="menu-content-about" style="display:none; margin-top:16px;">
+            <div class="control-group">
+              <span class="control-group__label">¿Qué es esto?</span>
+              <p class="about-copy">
+                TRENFASE usa <strong>melodías reales de salida de estaciones</strong> (train melodies / 発車メロディー) como material sonoro base.
+                Cada estación del circuito dispara su propio audio, tomado de referencias reales de la línea Yamanote.
+              </p>
+              <p class="about-copy">
+                En Japón, estas melodías se volvieron parte de la identidad sonora ferroviaria: se usan para marcar salidas,
+                ordenar el flujo de pasajeros y dar una señal reconocible en cada andén. Este proyecto toma esa cultura sonora
+                como inspiración y la convierte en una interfaz jugable/audiovisual.
+              </p>
+
+              <span class="about-section-title">Qué podés hacer acá</span>
+              <ul class="about-list">
+                <li>Componer ritmos generativos con 30 estaciones y múltiples trenes.</li>
+                <li>Editar estaciones: trim, volumen, pitch, delay y filtro.</li>
+                <li>Configurar cada tren de forma individual: velocidad, dirección, luz y sonido interno.</li>
+                <li>Entrar a Creación: líneas sólidas/punteadas, líneas rotantes, walkers y luces móviles.</li>
+                <li>Guardar/cargar escenas para explorar variaciones y sistemas más complejos.</li>
+              </ul>
+
+              <span class="about-section-title">Idea central</span>
+              <p class="about-copy">
+                No es solo un reproductor: es un laboratorio para mezclar memoria urbana, secuenciación musical y simulación visual.
+                Podés usarlo como instrumento ambient, como sketchbook de sistemas o como espacio para experimentar narrativas de movimiento.
+              </p>
+              <div class="about-links">
+                <a href="https://en.wikipedia.org/wiki/Train_melody" target="_blank" rel="noopener noreferrer">Train melody (Wikipedia)</a>
+                <a href="https://github.com/morgansleeper/Yamanotes" target="_blank" rel="noopener noreferrer">Yamanotes (referencia)</a>
+              </div>
+            </div>
+          </div>
+
+          <div id="menu-content-creation" style="display:none; margin-top:16px;">
+            <div class="control-group">
+              <span class="control-group__label">Espacio de Creación</span>
+              <button class="btn btn--small" id="creation-enable">Enable Creation Mode</button>
+            </div>
+
+            <div class="control-group" style="margin-top:14px;">
+              <span class="control-group__label">Herramientas</span>
+              <div class="btn-row">
+                <button class="btn btn--small creation-tool" id="creation-tool-select" data-tool="select">Select</button>
+                <button class="btn btn--small creation-tool" id="creation-tool-line" data-tool="line-solid">Line Solid</button>
+                <button class="btn btn--small creation-tool" id="creation-tool-dashed" data-tool="line-dashed">Line Dashed</button>
+                <button class="btn btn--small creation-tool" id="creation-tool-rotating" data-tool="rotating-line">Rotating</button>
+                <button class="btn btn--small creation-tool" id="creation-tool-walker" data-tool="walker">Walker</button>
+                <button class="btn btn--small creation-tool" id="creation-tool-waypoint" data-tool="walker-waypoint">Waypoint</button>
+              </div>
+              <span class="value" id="creation-tool-label">Tool: select</span>
+            </div>
+
+            <div class="control-group" style="margin-top:14px;">
+              <span class="control-group__label">🧱 Walls (Shift+Drag)</span>
+              <div class="slider-row">
+                <label>Wall Type</label>
+                <div class="btn-row" style="flex:1;">
+                  <button class="btn btn--small btn--active" id="wall-type-solid" style="flex:1;">Solid</button>
+                  <button class="btn btn--small" id="wall-type-dashed" style="flex:1;">Dashed</button>
+                </div>
+              </div>
+              <div class="slider-row">
+                <button class="btn btn--small" id="btn-clear-walls" style="width:100%; border-color:var(--color-ring-track); color:var(--color-ring-track);">Clear All Walls</button>
+              </div>
+            </div>
+
+            <div class="control-group" style="margin-top:14px;">
+              <span class="control-group__label">Acciones</span>
+              <div class="btn-row">
+                <button class="btn btn--small" id="creation-undo">Undo</button>
+                <button class="btn btn--small" id="creation-redo">Redo</button>
+                <button class="btn btn--small" id="creation-delete-selected">Delete Selected</button>
+                <button class="btn btn--small" id="creation-clear-scene">Clear Scene</button>
+              </div>
+            </div>
+
+            <div class="control-group" style="margin-top:14px;">
+              <span class="control-group__label">Performance</span>
+              <div class="slider-row">
+                <label>Shadows</label>
+                <select id="creation-performance" style="flex:1; padding:2px;">
+                  <option value="normal">Normal</option>
+                  <option value="eco">Eco</option>
+                </select>
+              </div>
+              <div class="creation-warning" id="creation-warning"></div>
+            </div>
+
+            <div class="control-group" style="margin-top:14px;">
+              <span class="control-group__label">Entidades</span>
+              <div class="creation-entity-list" id="creation-entity-list"></div>
+            </div>
+
+            <div class="control-group" style="margin-top:14px;">
+              <span class="control-group__label">Inspector</span>
+              <div class="creation-inspector" id="creation-inspector"></div>
+            </div>
+
+            <div class="control-group" style="margin-top:14px;">
+              <span class="control-group__label">Save / Load</span>
+              <div class="btn-row">
+                <button class="btn btn--small" id="creation-export">Export JSON</button>
+                <button class="btn btn--small" id="creation-import">Import JSON</button>
+                <button class="btn btn--small" id="creation-save-local">Save Local</button>
+                <button class="btn btn--small" id="creation-load-local">Load Local</button>
+              </div>
+              <textarea id="creation-json" class="creation-json" placeholder="Scene JSON..."></textarea>
             </div>
           </div>
         </div>

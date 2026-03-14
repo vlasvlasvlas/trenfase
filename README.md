@@ -1,109 +1,382 @@
 # TRENFASE 🚃🎶
 
-**TRENFASE** is an interactive, generative audio-visual sequencer inspired by the Yamanote Line (山手線) in Tokyo. 
+**TRENFASE** es un secuenciador audiovisual interactivo inspirado en la Yamanote Line (山手線) de Tokio.
 
-It functions as a dynamic sound machine where autonomous trains traverse a track (the circuit), triggering individual station melodies. The system blends generative ambient drones, raycast dynamic lighting, and per-station audio effects to create a deeply mesmerizing and customizable ambient experience.
-
-![TRENFASE](https://img.shields.io/badge/Status-Active-brightgreen) ![Tech](https://img.shields.io/badge/Tech-Vanilla%20JS%20%7C%20Canvas%20%7C%20Web%20Audio-blue)
-
-## ✨ Core Features
-
-### 🎵 Audio Engine
-- **Generative Polyphony:** Each train acts as a playhead. When a train passes a station, it triggers that station's unique chime (or melody), allowing for emergent polyphonic rhythms when multiple trains are moving.
-- **Rhythmic Drone (Traqueteo):** A synthesized, procedural background drone simulates the rhythmic "clackety-clack" of train wheels on the tracks, reacting dynamically to the global speed of the trains.
-- **Per-Station FX Chain:** Complete Web Audio API integration allowing granular control over each station's audio buffer:
-  - **Trim:** Real-time waveform editor to crop the start and end of the audio sample.
-  - **Volume & Pitch.**
-  - **Lowpass Filter:** Frequency and Q-factor controls.
-  - **Delay:** Time, Feedback, and Wet mix controls.
-
-### 🎨 Visuals & Lighting
-- **Ray-cast Shadows:** A custom Canvas 2D lighting engine. Trains emit light cones (headlights) that dynamically cast realistic shadows behind user-drawn obstacles (walls).
-- **Interactive Environment:** Users can draw solid or dashed walls directly on the canvas (using `Shift + Drag`). Dashed walls allow light to realistically filter through the gaps.
-- **Per-Train Lighting:** Trains can be configured to emit light Forward, Backward, or Omnidirectionally, with customizable radius, color, and intensity.
-- **Responsive Geometry:** The track is a mathematically generated rounded-rectangle (stadium shape) that perfectly fits and scales to the user's browser window.
+El proyecto combina:
+- disparo musical por estaciones,
+- trenes autónomos con control individual,
+- iluminación dinámica con sombras por raycasting,
+- y un espacio de creación para construir escenas vivas (líneas, rotación, walkers).
 
 ---
 
-## 🚀 Installation & Setup
+## 1. Origen e inspiración
 
-TRENFASE is entirely built in Vanilla HTML, CSS, and JavaScript. It does not require Node.js, Webpack, or any build step.
+TRENFASE trabaja con una idea central: usar el lenguaje sonoro ferroviario japonés como material compositivo.
 
-To run it locally, you just need a basic HTTP server to avoid CORS issues when loading the audio files.
+- Los sonidos base del circuito corresponden a **melodías de salida de estaciones** (train melodies / 発車メロディー) usadas en contexto real ferroviario.
+- Estas melodías funcionan como señales auditivas reconocibles para el flujo de pasajeros y forman parte de la identidad urbana de muchas estaciones.
+- En esta interfaz, ese material se reorganiza como instrumento generativo: cada tren recorre el anillo y activa estaciones, creando patrones rítmicos y armónicos emergentes.
 
-### 1. Clone the Repository
+Referencias de contexto:
+- https://en.wikipedia.org/wiki/Train_melody
+- https://github.com/morgansleeper/Yamanotes
+
+---
+
+## 2. Estado actual del proyecto (implementado)
+
+- 30 estaciones de Yamanote (`JY-01` a `JY-30`) con audio por estación.
+- Tren(es) con configuración totalmente individual:
+  - velocidad,
+  - dirección CW/CCW,
+  - luz (color, intensidad, radio, orientación),
+  - sonido interno (on/off, volumen, frecuencia, rate, tone).
+- Menú principal con tabs:
+  - `Settings`,
+  - `Creación`,
+  - `¿Qué es esto?`.
+- Barra inferior minimal:
+  - `+ 🚃 Nuevo Tren`,
+  - `⛶ Fullscreen`,
+  - contador de estaciones activas/ghost.
+- Fullscreen con ocultación automática del header.
+- Escalado adaptativo de entidades de creación y walls en cambios de viewport/fullscreen.
+
+---
+
+## 3. Instalación y ejecución local
+
+No hay build step. Es Vanilla HTML/CSS/JS.
+
+### 3.1 Clonar
+
 ```bash
 git clone https://github.com/vladimirobellini/trenfase.git
 cd trenfase
 ```
 
-### 2. Start a Local Server
-You can use any local server tool. 
+### 3.2 Levantar servidor estático
 
-**Using Python:**
 ```bash
 python3 -m http.server 8080
 ```
 
-**Using Node / npm:**
+Alternativa:
+
 ```bash
 npx http-server -p 8080
 ```
 
-### 3. Open in Browser
-Navigate to `http://localhost:8080` in your preferred web browser.
+### 3.3 Abrir en navegador
+
+Ir a `http://localhost:8080`.
 
 ---
 
-## 🕹 Usage Guide
+## 4. Mapa de interfaz
 
-### Global Controls (Settings ⚙️)
-Click **⚙️ Settings** in the top right corner to open the global panel. Here you can:
-- **Add New Trains:** Spawn a new train on the track. By default, trains start at `0.25` speed.
-- **Global Speed Slider:** Adjust the master speed modifier for all trains.
-- **Drone Controls:** Toggle the rhythmic background drone and adjust its volume and base frequency.
-- **Environment:** Toggle between `Solid` and `Dashed` wall drawing modes, or clear all drawn walls. 
+### 4.1 Header
 
-### Train Controls
-- **Edit a Train:** Click directly on a moving train dot on the track to open its dedicated configuration panel.
-- **Adjustments:** Modify its individual speed, direction (CW/CCW), light color (HEX), intensity, radius, and light orientation (Forward / Backward / Omni).
+- Botón `☰ Menu` abre/cierra panel lateral.
+- En fullscreen, el header se oculta automáticamente.
 
-### Station Controls
-- **Edit a Station:** Click on any station node on the track.
-- **Trim Audio:** Drag the waveform handles to select exactly what portion of the MP3 triggers.
-- **Mix & FX:** Apply delay chains and lowpass filters specific to that node.
-- **States:** 
-  - `Active`: Plays audio and emits a visual glow.
-  - `Off`: Muted and visually inactive.
-  - `Ghost`: Muted but visually pulses when a train passes.
+### 4.2 Barra inferior
 
-### Drawing Walls
-Hold **`Shift` and Click + Drag** your mouse anywhere on the background canvas to draw walls. When train lights sweep past these walls, they will cast dynamic shadows.
+- `+ 🚃 Nuevo Tren`: crea tren con velocidad default `0.25`.
+- `⛶ Fullscreen`: alterna fullscreen.
+- `station-count`: muestra cuántas estaciones están en estado `Active` o `Ghost`.
+
+### 4.3 Panel de estación (click en estación)
+
+- Estado: `Active`, `Off`, `Ghost`.
+- Trim del audio por waveform.
+- Volumen y pitch.
+- FX por estación: Delay + Filter.
+
+### 4.4 Panel de tren (click en tren)
+
+- Dirección, velocidad, color de luz, tipo de luz, intensidad y radio.
+- Sonido interno del tren con 5 controles.
+- Botón `Remove Train ✕` elimina ese tren.
+
+### 4.5 Menú lateral (panel settings)
+
+### Tab `Settings`
+
+- Master Volume global.
+- Lista de trenes con control rápido por tren:
+  - speed, light int/rad,
+  - sound on/off, vol, freq, rate, tone,
+  - dirección,
+  - eliminar.
+
+### Tab `Creación`
+
+- Herramientas de entidad (`select`, `line-solid`, `line-dashed`, `rotating-line`, `walker`, `walker-waypoint`).
+- Sección de walls (`Wall Type`, `Clear All Walls`).
+- Acciones (`Undo`, `Redo`, `Delete Selected`, `Clear Scene`).
+- Performance (`Normal` / `Eco`).
+- Lista de entidades + inspector.
+- Export/Import JSON + Save/Load Local.
+
+### Tab `¿Qué es esto?`
+
+- Contexto conceptual, historia breve de inspiración sonora y links de fuente.
 
 ---
 
-## 🛠 Technical Architecture
+## 5. Referencia exhaustiva de controles y rangos
 
-TRENFASE is built to be extremely lightweight and dependency-free.
+### 5.1 Controles globales
 
-### File Structure
-- `index.html`: Main application layout, side panel UI, and SVG/Canvas layering.
-- `css/base.css`: All styling, layout structures, and CSS variables.
-- `js/app.js`: Master orchestrator. Connects the UI events, the render loop (`requestAnimationFrame`), the audio engine, and train management.
-- `js/color-bg.js`: Canvas 2D renderer responsible for fading tails, drawing walls, clipping light cones, and generating real-time shadow polygons using raycasting algorithms.
-- `js/ring.js`: Handles the SVG overlay. Computes the parametric `(x,y)` positions and tangential angles of the rounded rectangle track to perfectly position stations and train SVGs.
-- `js/audio-engine.js`: Web Audio API wrapper. Manages the `AudioContext`, loads buffers, creates routing graphs (Gain -> Filter -> Delay -> Destination), and synthesizes the background drone.
-- `js/trim-editor.js`: Custom UI component that renders raw audio array buffer data into a visual waveform canvas with draggable interactive handles.
-- `js/train.js`: Pure data model for trains (speed, position, color, lighting properties).
-- `js/stations.js`: Data structures containing metadata (names, audio paths) for all Yamanote line stations.
+| Control | Rango UI | Valor interno |
+|---|---:|---:|
+| Master Volume | `0..100` | `0.00..1.00` |
+| Add Train (default) | fijo | `0.25` UI speed |
+| Fullscreen | toggle | `document.fullscreenElement` |
 
-### The Rendering Pipeline
-The app leverages a hybrid rendering approach:
-1. **SVG Layer (`ring.js`):** Used for sharp, resolution-independent rendering of the track line, station nodes, and train dots. Excellent for crisp UI elements and attachable DOM click events.
-2. **Canvas Layer (`color-bg.js`):** Sits beneath the SVG. Used for high-performance pixel operations. It handles the fading motion blur of the stations, the radial gradients of the lights, and the complex clipping masks required for dynamic shadow casting.
+### 5.2 Controles por tren
 
-### Sound Scheduling
-When `train.shouldTrigger(station)` returns true, `app.js` issues a command to the `AudioEngine`. The engine creates a new `AudioBufferSourceNode`, respects the custom Trim Start/End points, routes it through the specific FX nodes owned by that station, and fires the playback precisely.
+| Control | Rango UI | Valor interno |
+|---|---:|---:|
+| Speed | `1..1000` | `0.01..10.00` UI speed |
+| Direction | toggle | `1` (CW) / `-1` (CCW) |
+| Light Type | `forward/backward/omni` | enum |
+| Light Intensity | `0..100` | `0.00..1.00` |
+| Light Radius | `50..1000` | px |
+| Sound Enabled | toggle | boolean |
+| Sound Volume | `0..30` | `0.00..0.30` |
+| Sound Frequency | `20..200` | Hz |
+| Sound Rate | `10..400` | `0.10..4.00` |
+| Sound Tone | `0..100` | `0.00..1.00` |
+
+Defaults de tren nuevo:
+- `speed = 0.25` (UI)
+- `direction = CW`
+- `lightIntensity = 0.6`
+- `lightRadius = 300`
+- `lightType = forward`
+- `soundEnabled = true`
+- `soundVolume = 0.08`
+- `soundFrequency = 55`
+- `soundRate = 1.0`
+- `soundTone = 0.5`
+
+Límites de sistema:
+- `maxTrains = 5`
+
+### 5.3 Controles por estación
+
+| Control | Rango UI | Valor interno |
+|---|---:|---:|
+| Station Volume | `0..100` | `0.00..1.00` |
+| Station Pitch | `25..200` | `0.25..2.00` |
+| Delay Time | `0..200` | `0.00..2.00 s` |
+| Delay Feedback | `0..90` | `0.00..0.90` |
+| Delay Wet | `0..100` | `0.00..1.00` |
+| Filter Freq | `0..100` | mapeo log `20..20000 Hz` |
+| Filter Q | `1..150` | `0.1..15.0` |
+
+Estados de estación:
+- `Active`: reproduce audio y responde visualmente.
+- `Off`: no reproduce.
+- `Ghost`: no reproduce, pero reacciona visualmente al paso del tren.
+
+### 5.4 Creación: entidades e inspector
+
+### Line
+- dashed: bool
+- color
+- width: `1..12`
+- shadow: bool
+- collider: bool
+
+### Rotating Line
+- color
+- width: `1..12`
+- length: `20..500`
+- angle: `0..360`
+- speed: `-180..180 deg/s`
+- dashed: bool
+- shadow: bool
+
+### Walker
+- diameter: `4..60`
+- speed: `10..240`
+- loop: bool
+- board radius: `10..80`
+- light enabled: bool
+- light radius: `40..500`
+- light intensity: `0..100` -> `0..1`
+- light color
+- waypoints add/clear
 
 ---
-*Built with ❤️ in Vanilla JS.*
+
+## 6. Espacio de creación en detalle
+
+### 6.1 Herramientas
+
+- `Select`: selecciona y arrastra entidades.
+- `Line Solid`: crea segmento sólido.
+- `Line Dashed`: crea segmento punteado (deja pasar luz entre gaps).
+- `Rotating`: crea línea centrada que rota.
+- `Walker`: crea entidad móvil circular.
+- `Waypoint`: agrega waypoints al walker seleccionado.
+
+### 6.2 Interacciones clave
+
+- `Undo/Redo`: historial de escena (stack máximo `120` snapshots).
+- `Delete Selected`: borra entidad seleccionada.
+- `Clear Scene`: limpia entidades de creación.
+- Import/Load aplican normalización de estado para evitar corrupción.
+- En select+drag, el undo se guarda al mover de verdad (evita estados basura).
+
+### 6.3 Walker FSM (comportamiento)
+
+Estados:
+- `walk` -> recorre waypoints.
+- `wait` -> espera en estación cercana.
+- `ride` -> sube al tren cercano y lo sigue.
+- `unboard` -> baja en otra estación y vuelve a `walk`.
+
+Umbrales relevantes:
+- `stationRadius` (default `20`)
+- `boardRadius` (default `24`)
+- `minRideMs` (default `3500`)
+
+### 6.4 Walls
+
+- Se dibujan con `Shift + Drag`.
+- El tipo (`Solid`/`Dashed`) se define en tab `Creación`.
+- `Clear All Walls` limpia solo walls del fondo.
+- Participan en el cálculo de sombras junto con obstáculos del espacio de creación.
+
+---
+
+## 7. Audio: cómo está modelado
+
+### 7.1 Disparo por estación
+
+Cuando un tren cruza el umbral de una estación:
+- se evalúa estado (`Active`/`Ghost`),
+- si corresponde, se dispara `AudioBufferSourceNode`,
+- se aplica trim, pitch, volumen y cadena FX por estación.
+
+### 7.2 Sonido interno por tren (clack/rhythmic)
+
+Cada tren tiene su propio patrón. El motor usa:
+- distancia acumulada de movimiento,
+- `soundRate` para densidad,
+- `minGapMs` para evitar ráfaga excesiva,
+- `maxSilenceMs` para evitar silencios largos a baja velocidad,
+- `soundTone` para balance snap/thump del timbre.
+
+Resultado: cada tren puede sonar distinto y estable en un rango amplio de velocidades.
+
+---
+
+## 8. Render, luces y adaptación responsive
+
+Pipeline híbrido:
+- `SVG` (`ring.js`) para vía, estaciones y dots de tren.
+- `Canvas` (`color-bg.js`) para glow, luces y sombras.
+
+Tipos de luz por tren:
+- `forward` (cono frontal),
+- `backward` (cono invertido),
+- `omni` (halo 360).
+
+Performance:
+- `Normal`: sombras completas.
+- `Eco`: proyección/iteración reducida en sombras.
+
+Resize/fullscreen:
+- se re-renderiza el ring,
+- se reescala el espacio de creación (entidades, waypoints, walls, draft segment),
+- en fullscreen se oculta el header.
+
+---
+
+## 9. Persistencia de escena de creación
+
+Formato general:
+
+```json
+{
+  "version": 1,
+  "entities": [],
+  "nextId": 1,
+  "performanceMode": "normal"
+}
+```
+
+Operaciones:
+- `Export JSON`: dump al textarea.
+- `Import JSON`: parse + normalización.
+- `Save Local`: `localStorage` key `trenfase.creation.scene.v1`.
+- `Load Local`: restauración + normalización.
+
+---
+
+## 10. QA completo recomendado
+
+1. Abrir app y verificar carga de audio (pantalla inicial + botón start).
+2. Crear 2-3 trenes desde barra inferior.
+3. Click en cada tren y validar panel completo de controles.
+4. Llevar speed de un tren a `10.00` y otro a `0.25`.
+5. Cambiar dirección individual y verificar trigger reset correcto.
+6. Probar `Light Type` forward/backward/omni.
+7. Ajustar `Snd Vol/Freq/Rate/Tone` y confirmar cambios audibles por tren.
+8. Eliminar un tren desde panel de tren.
+9. Abrir `Menu -> Settings` y usar la lista de trenes para editar los mismos parámetros.
+10. Verificar `Master Volume` global.
+11. Editar una estación: trim, volume, pitch, delay, filter.
+12. Probar estados `Active`, `Off`, `Ghost`.
+13. En `Creación`, activar modo creación y dibujar `Line Solid`.
+14. Cambiar a `Line Dashed` y confirmar diferencia visual/luz.
+15. Crear `Rotating`, ajustar speed positivo/negativo.
+16. Crear `Walker`, agregar waypoints, observar FSM (walk/wait/ride/unboard).
+17. Probar `Undo/Redo`, luego `Delete Selected`, y volver a crear líneas de distinto tipo.
+18. Probar `Export/Import` y `Save/Load Local`.
+19. Cambiar a `Performance = Eco` y comparar costo visual.
+20. Entrar/salir fullscreen y validar header oculto en fullscreen y adaptación correcta de entidades/walls a nuevo viewport.
+
+---
+
+## 11. Arquitectura de código
+
+- `index.html`: estructura principal, paneles, tabs y controles.
+- `css/base.css`: layout, componentes y estados UI.
+- `css/themes/60s.css`: variables visuales del tema activo.
+- `js/app.js`: orquestador principal (UI, loop, paneles, creación, resize/fullscreen).
+- `js/train.js`: modelo de tren + lógica de update/trigger/clack.
+- `js/audio-engine.js`: Web Audio API (buffers estaciones + síntesis clack tren).
+- `js/ring.js`: geometría del circuito y render SVG de estaciones/trenes.
+- `js/color-bg.js`: render canvas (glows, lights, shadows, walls).
+- `js/trim-editor.js`: editor de waveform para trim por estación.
+- `js/stations.js`: catálogo de estaciones y defaults de audio/FX.
+
+---
+
+## 12. Decisiones y límites actuales
+
+- Proyecto sin dependencias de build (simple y portable).
+- Máximo 5 trenes para mantener claridad visual y costo controlado.
+- Más de 8 rotating lines muestra warning de performance.
+- `Eco` prioriza costo sobre precisión de sombra.
+- El sistema no busca exactitud ferroviaria 1:1; prioriza expresividad audiovisual interactiva.
+
+---
+
+## 13. Créditos
+
+- Inspiración ferroviaria y cultura sonora: Yamanote Line / train melodies.
+- Referencias:
+  - https://en.wikipedia.org/wiki/Train_melody
+  - https://github.com/morgansleeper/Yamanotes
+
+---
+
+Hecho en Vanilla JS, Canvas 2D, SVG y Web Audio API.

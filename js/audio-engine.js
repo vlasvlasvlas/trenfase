@@ -19,6 +19,9 @@ class AudioEngine {
     this.droneGain = null;
     this.droneFilter = null;
     this.droneRunning = false;
+
+    // Per-train Continuous Drones
+    this.trainDrones = new Map();
   }
 
   init() {
@@ -163,7 +166,131 @@ class AudioEngine {
     }
   }
 
-  // === Drone System ===
+  // === Per-Train Continuous Drone System ===
+
+  ensureTrainDrone(trainId) {
+    if (!this.ctx) return null;
+    if (this.trainDrones.has(trainId)) return this.trainDrones.get(trainId);
+
+    // Create a drone synthesizer for this train
+    const droneGain = this.ctx.createGain();
+    droneGain.gain.value = 0; // Starts silent
+
+    const droneFilter = this.ctx.createBiquadFilter();
+    droneFilter.type = 'lowpass';
+    droneFilter.frequency.value = 400; // Deep rumble by default
+    droneFilter.Q.value = 3;
+
+    // 2 Oscillators for a rich, gutural drone (detuned square + sine)
+    const osc1 = this.ctx.createOscillator();
+    osc1.type = 'square';
+    osc1.frequency.value = 55;
+    
+    const osc2 = this.ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.value = 54.5; // slight beating
+
+    // Sub oscillator for deep rumble
+    const subOsc = this.ctx.createOscillator();
+    subOsc.type = 'sine';
+    subOsc.frequency.value = 27.5; // an octave below
+    
+    const oscGain1 = this.ctx.createGain();
+    oscGain1.gain.value = 0.2;
+    const oscGain2 = this.ctx.createGain();
+    oscGain2.gain.value = 0.5;
+    const subGain = this.ctx.createGain();
+    subGain.gain.value = 0.6; // Heavy low end
+
+    osc1.connect(oscGain1);
+    osc2.connect(oscGain2);
+    subOsc.connect(subGain);
+
+    oscGain1.connect(droneFilter);
+    oscGain2.connect(droneFilter);
+    subGain.connect(droneFilter);
+
+    droneFilter.connect(droneGain);
+    droneGain.connect(this.masterBus);
+
+    osc1.start();
+    osc2.start();
+    subOsc.start();
+
+    const droneData = {
+      gainNode: droneGain,
+      filterNode: droneFilter,
+      osc1, osc2, subOsc,
+      isRunning: false
+    };
+
+    this.trainDrones.set(trainId, droneData);
+    return droneData;
+  }
+
+  updateTrainDrone(train) {
+    if (!this.ctx) return;
+    const drone = this.ensureTrainDrone(train.id);
+    if (!drone) return;
+
+    if (!train.soundEnabled || !train.droneEnabled || train.speed <= 0.00001) {
+      // Fade out
+      if (drone.isRunning) {
+        drone.gainNode.gain.cancelScheduledValues(this.ctx.currentTime);
+        drone.gainNode.gain.setTargetAtTime(0, this.ctx.currentTime, 0.5);
+        drone.isRunning = false;
+      }
+      return;
+    }
+
+    // Train is moving and drone is enabled
+    if (!drone.isRunning) {
+      drone.gainNode.gain.cancelScheduledValues(this.ctx.currentTime);
+      drone.gainNode.gain.setTargetAtTime(train.soundVolume, this.ctx.currentTime, 0.5);
+      drone.isRunning = true;
+    } else {
+      drone.gainNode.gain.cancelScheduledValues(this.ctx.currentTime);
+      drone.gainNode.gain.setTargetAtTime(train.soundVolume, this.ctx.currentTime, 0.1);
+    }
+
+    // Dynamic pitch based on train speed and configured frequency
+    // Normalized speed: assuming 0 to 0.1 is normal range
+    const normalizedSpeed = Math.min(1.0, train.speed / 0.05); // cap at something high
+    
+    // Pitch goes up as speed goes up. 
+    // If speed is 0, base freq. If max speed, go up to an octave higher.
+    const pitchMultiplier = 1.0 + (normalizedSpeed * 1.5); // up to 2.5x pitch modifier based on speed
+    
+    const baseFreq = train.soundFrequency || 55;
+    const targetFreq = baseFreq * pitchMultiplier;
+
+    drone.osc1.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.1);
+    drone.osc2.frequency.setTargetAtTime(targetFreq * 0.99, this.ctx.currentTime, 0.1); // detune
+    drone.subOsc.frequency.setTargetAtTime(targetFreq * 0.5, this.ctx.currentTime, 0.1); // sub octave
+
+    // Filter opens up as train goes faster and soundTone goes up
+    const tone = train.soundTone || 0.5;
+    const filterTarget = 100 + (tone * 800) + (normalizedSpeed * 2000);
+    drone.filterNode.frequency.setTargetAtTime(filterTarget, this.ctx.currentTime, 0.1);
+  }
+
+  removeTrainDrone(trainId) {
+    const drone = this.trainDrones.get(trainId);
+    if (drone) {
+      try { drone.gainNode.gain.cancelScheduledValues(this.ctx.currentTime); } catch(e){}
+      try { drone.gainNode.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); } catch (e){}
+      setTimeout(() => {
+        try { drone.osc1.stop(); drone.osc1.disconnect(); } catch (e) {}
+        try { drone.osc2.stop(); drone.osc2.disconnect(); } catch (e) {}
+        try { drone.subOsc.stop(); drone.subOsc.disconnect(); } catch (e) {}
+        try { drone.filterNode.disconnect(); } catch (e) {}
+        try { drone.gainNode.disconnect(); } catch (e) {}
+        this.trainDrones.delete(trainId);
+      }, 500);
+    }
+  }
+
+  // === Global Ambient Drone System ===
 
   _setupDrone() {
     this.droneGain = this.ctx.createGain();
@@ -243,10 +370,16 @@ class AudioEngine {
   }
 
   // === Rhythmic Train Clack ===
-  playTrainClack(volume = 1.0, pitch = 1.0) {
+  playTrainClack(volume = 1.0, pitch = 1.0, options = {}) {
     if (!this.ctx || volume <= 0.01) return;
     
     const t = this.ctx.currentTime;
+    const tone = Math.max(0, Math.min(1, options.tone != null ? options.tone : 0.5));
+    const snapFreq = (500 + tone * 2600) * pitch;
+    const snapAmount = 0.12 + tone * 0.48;
+    const thumpAmount = 0.95 - tone * 0.5;
+    const snapDecay = 0.03 + (1 - tone) * 0.03;
+    const thumpDecay = 0.06 + (1 - tone) * 0.06;
     
     // 1. Noise burst (high frequency snap of the wheels)
     const bufferSize = this.ctx.sampleRate * 0.1; // 100ms
@@ -261,12 +394,12 @@ class AudioEngine {
     
     const noiseFilter = this.ctx.createBiquadFilter();
     noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.value = 1000 * pitch;
-    noiseFilter.Q.value = 1.5;
+    noiseFilter.frequency.value = snapFreq;
+    noiseFilter.Q.value = 1.2 + tone * 2.4;
     
     const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(volume * 0.3, t);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    noiseGain.gain.setValueAtTime(volume * snapAmount, t);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + snapDecay);
     
     noiseSource.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
@@ -276,12 +409,12 @@ class AudioEngine {
     const osc = this.ctx.createOscillator();
     osc.type = 'sine';
     // pitch bend down
-    osc.frequency.setValueAtTime(150 * pitch, t);
+    osc.frequency.setValueAtTime((110 + tone * 120) * pitch, t);
     osc.frequency.exponentialRampToValueAtTime(40, t + 0.05);
     
     const oscGain = this.ctx.createGain();
-    oscGain.gain.setValueAtTime(volume * 0.8, t);
-    oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    oscGain.gain.setValueAtTime(volume * thumpAmount, t);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, t + thumpDecay);
     
     osc.connect(oscGain);
     oscGain.connect(this.masterBus);

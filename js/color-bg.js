@@ -120,8 +120,18 @@ class ColorBackground {
     );
   }
 
-  render(analyserData, trainLights = []) {
+  render(analyserData, trainLights = [], world = null) {
     const { width, height } = this.canvas;
+    const worldObstacles = world && world.obstacles ? world.obstacles : [];
+    const worldWalkers = world && world.walkers ? world.walkers : [];
+    const worldLights = world && world.lights ? world.lights : [];
+    const draftSegment = world && world.draftSegment ? world.draftSegment : null;
+    const performanceMode = world && world.performanceMode ? world.performanceMode : 'normal';
+    const allLights = [...trainLights, ...worldLights];
+    const shadowWalls = [
+      ...this.walls.map((w) => ({ ...w, shadow: true })),
+      ...worldObstacles.filter((w) => w.shadow !== false)
+    ];
 
     // Fade to dark
     this.ctx.fillStyle = 'rgba(26, 26, 26, 0.08)';
@@ -157,7 +167,7 @@ class ColorBackground {
     }
 
     // 2. Draw train lights & compute shadows
-    for (const light of trainLights) {
+    for (const light of allLights) {
       this.ctx.save();
       
       const radius = light.radius || 300;
@@ -186,12 +196,12 @@ class ColorBackground {
       this.ctx.fillRect(light.x - radius, light.y - radius, radius * 2, radius * 2);
 
       // Cast shadows from walls
-      this._drawShadows(light.x, light.y);
+      this._drawShadows(light.x, light.y, shadowWalls, performanceMode);
       
       this.ctx.restore();
     }
 
-    // 3. Draw walls and the drawing indicator
+    // 3. Draw static walls
     this.ctx.strokeStyle = 'rgba(245, 240, 225, 0.4)';
     this.ctx.lineWidth = 2;
     this.ctx.lineCap = 'round';
@@ -202,6 +212,29 @@ class ColorBackground {
       this.ctx.lineTo(wall.x2, wall.y2);
     }
     this.ctx.stroke();
+
+    // 4. Draw scene obstacles (creation entities)
+    for (const obstacle of worldObstacles) {
+      this.ctx.strokeStyle = obstacle.selected ? '#C41E3A' : (obstacle.color || 'rgba(245, 240, 225, 0.6)');
+      this.ctx.lineWidth = obstacle.selected ? Math.max(2, (obstacle.width || 2) + 1) : (obstacle.width || 2);
+      this.ctx.beginPath();
+      this.ctx.moveTo(obstacle.x1, obstacle.y1);
+      this.ctx.lineTo(obstacle.x2, obstacle.y2);
+      this.ctx.stroke();
+    }
+
+    // 5. Draw walkers
+    for (const walker of worldWalkers) {
+      this.ctx.beginPath();
+      this.ctx.arc(walker.x, walker.y, walker.radius, 0, Math.PI * 2);
+      this.ctx.fillStyle = walker.color || 'rgba(245, 240, 225, 0.9)';
+      this.ctx.fill();
+      if (walker.selected) {
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeStyle = '#C41E3A';
+        this.ctx.stroke();
+      }
+    }
     
     if (this.currentWall) {
       this.ctx.strokeStyle = '#C41E3A';
@@ -218,13 +251,27 @@ class ColorBackground {
       this.ctx.stroke();
       this.ctx.setLineDash([]); // reset for next frame
     }
+
+    // 6. Draft segment while creating
+    if (draftSegment) {
+      this.ctx.strokeStyle = draftSegment.color || '#C41E3A';
+      this.ctx.lineWidth = draftSegment.width || 2;
+      if (draftSegment.dashed) this.ctx.setLineDash([15, 20]);
+      this.ctx.beginPath();
+      this.ctx.moveTo(draftSegment.x1, draftSegment.y1);
+      this.ctx.lineTo(draftSegment.x2, draftSegment.y2);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+    }
   }
 
-  _drawShadows(lightX, lightY) {
+  _drawShadows(lightX, lightY, walls, performanceMode = 'normal') {
     this.ctx.fillStyle = 'rgba(26, 26, 26, 0.95)'; // Shadow darkness
-    const EXT = 4000; // Far projection distance
+    const EXT = performanceMode === 'eco' ? 2200 : 4000; // Far projection distance
+    const STEP = performanceMode === 'eco' ? 2 : 1;
 
-    for (const wall of this.walls) {
+    for (let i = 0; i < walls.length; i += STEP) {
+      const wall = walls[i];
       const dx1 = wall.x1 - lightX;
       const dy1 = wall.y1 - lightY;
       const mag1 = Math.hypot(dx1, dy1) || 1;

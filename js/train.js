@@ -16,25 +16,49 @@ class Train {
     this.lightIntensity = 0.6;
     this.lightRadius = 300;
     this.lightType = 'forward'; // 'forward', 'backward', 'omni'
+
+    // Per-train wheel/drone-like sound settings
+    this.soundEnabled = true; // clack sound
+    this.droneEnabled = false; // continuous drone
+    this.soundVolume = 0.08;
+    this.soundFrequency = 55;
+    this.soundRate = 1.0;
+    this.soundTone = 0.5;
     
     this.triggeredStations = new Set(); // avoid re-triggering same station
     this.triggerThreshold = 4; // degrees proximity to trigger
     
     // Rhythm tracking
     this.distanceTraveled = 0;
-    this.clackInterval = 6; // degrees of movement between clacks
+    this.clackIntervalBase = 0.25; // degrees between clacks at rate=1
+    this.clackMinGapMsBase = 160;  // minimum spacing to avoid machine-gun at high speed
+    this.clackMaxSilenceMsBase = 2200; // force a clack if moving slowly
+    this.clackElapsedMs = 0;
     this.onClack = null;    // callback when a clack should occur
   }
 
   update(deltaTime) {
     const normalizedDelta = deltaTime / 16.67; // normalize to 60fps
     const moveDist = this.speed * normalizedDelta;
+    const moveAbs = Math.abs(moveDist);
     
     this.angle += moveDist * this.direction;
-    this.distanceTraveled += moveDist;
+    this.distanceTraveled += moveAbs;
+    this.clackElapsedMs += deltaTime;
 
-    if (this.distanceTraveled >= this.clackInterval) {
-      this.distanceTraveled -= this.clackInterval;
+    const rate = Math.max(0.1, Math.min(4.0, this.soundRate || 1));
+    const clackInterval = Math.max(0.08, this.clackIntervalBase / rate);
+    const minGapMs = Math.max(60, this.clackMinGapMsBase / rate);
+    const maxSilenceMs = this.clackMaxSilenceMsBase / rate;
+
+    const isMoving = this.speed > 0.00001;
+    const byDistance = this.distanceTraveled >= clackInterval;
+    const bySilence = isMoving && this.clackElapsedMs >= maxSilenceMs;
+    const canEmit = this.clackElapsedMs >= minGapMs;
+
+    if (this.soundEnabled && isMoving && canEmit && (byDistance || bySilence)) {
+      this.distanceTraveled = byDistance ? (this.distanceTraveled % clackInterval) : 0;
+      this.clackElapsedMs = 0;
       if (this.onClack) this.onClack(this);
     }
 
