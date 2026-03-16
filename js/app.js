@@ -138,7 +138,27 @@ class App {
     btnCreator.addEventListener('click', () => {
       this.mode = 'creator';
       this.stations = []; // Empty canvas
+      
+      const loading = document.getElementById('loading-screen');
+      const lobby = document.getElementById('lobby-screen');
+      loading.style.display = 'none';
+      lobby.style.display = 'flex';
+      
+      this._initCreatorCityFromStorage().then(() => {
+        this._refreshCitySelectUI();
+      }).catch((err) => {
+        console.warn('Creator city init failed', err);
+      });
+    });
+
+    document.getElementById('btn-lobby-play').addEventListener('click', () => {
+      const lobby = document.getElementById('lobby-screen');
+      lobby.style.display = 'none';
       this._start();
+    });
+
+    document.getElementById('btn-lobby-back').addEventListener('click', () => {
+      location.reload();
     });
   }
 
@@ -183,14 +203,23 @@ class App {
     this._renderCreationUI();
     this._updateStationCount();
 
+    if (this.mode === 'yamanote') {
+      const btnToolStation = document.getElementById('creation-tool-station');
+      if (btnToolStation) btnToolStation.style.display = 'none';
+
+      const sessionControls = document.getElementById('in-game-session-controls');
+      if (sessionControls) sessionControls.style.display = 'none';
+      
+      const saveControls = document.getElementById('creation-export')?.closest('.control-group');
+      if (saveControls) saveControls.style.display = 'none';
+      
+      const cityManagerWarning = document.getElementById('creator-growth-help')?.closest('.control-group');
+      // Growth/goals are fine in yamanote as part of the sim visualization or we can leave them.
+    }
+
     if (this.mode === 'creator') {
       this._initCityWorker();
       this._resetGameplay();
-      this._initCreatorCityFromStorage().then(() => {
-        this._refreshCitySelectUI();
-      }).catch((err) => {
-        console.warn('Creator city init failed', err);
-      });
       
       // Auto-open Creation tools to guide the user
       this._openSettingsPanel();
@@ -352,7 +381,10 @@ class App {
 
   _onCreatorStationMoved(station) {
     if (this.mode !== 'creator') return;
-    this._syncStationToWorker(station);
+    // We intentionally DO NOT _syncStationToWorker(station) here,
+    // to avoid wiping out the city continuously during a drag.
+    // The position is updated visually and trains move, but the city
+    // doesn't restructure until _onCreatorStationDragEnd.
     this._relocateTrainsToCurrentTrack();
     this.ring.updateTrains(this.trains.getAll());
   }
@@ -1299,6 +1331,19 @@ class App {
     document.getElementById('train-edit-light-type').value = train.lightType || 'forward';
     document.getElementById('train-edit-snd-vol').value = Math.round(train.soundVolume * 100);
     document.getElementById('train-edit-snd-vol-val').textContent = train.soundVolume.toFixed(2);
+    
+    document.getElementById('train-delay-time').value = (train.droneDelayTime || 0) * 100;
+    document.getElementById('train-delay-time-val').textContent = (train.droneDelayTime || 0).toFixed(2) + 's';
+    document.getElementById('train-delay-feedback').value = (train.droneDelayFeedback || 0) * 100;
+    document.getElementById('train-delay-feedback-val').textContent = (train.droneDelayFeedback || 0).toFixed(1);
+    document.getElementById('train-delay-wet').value = (train.droneDelayWet || 0) * 100;
+    document.getElementById('train-delay-wet-val').textContent = (train.droneDelayWet || 0).toFixed(1);
+    document.getElementById('train-reverb-time').value = (train.droneReverbTime || 30);
+    document.getElementById('train-reverb-time-val').textContent = ((train.droneReverbTime || 30) / 10).toFixed(1) + 's';
+    document.getElementById('train-reverb-decay').value = (train.droneReverbDecay || 30);
+    document.getElementById('train-reverb-decay-val').textContent = ((train.droneReverbDecay || 30) / 10).toFixed(1) + 's';
+    document.getElementById('train-reverb-wet').value = (train.droneReverbWet || 0) * 100;
+    document.getElementById('train-reverb-wet-val').textContent = (train.droneReverbWet || 0).toFixed(2);
     document.getElementById('train-edit-snd-freq').value = Math.round(train.soundFrequency);
     document.getElementById('train-edit-snd-freq-val').textContent = `${Math.round(train.soundFrequency)}Hz`;
     document.getElementById('train-edit-snd-rate').value = Math.round(train.soundRate * 100);
@@ -1658,6 +1703,24 @@ class App {
       document.getElementById('fx-delay-wet-val').textContent = this.selectedStation.fx.delayWet.toFixed(1);
     });
 
+    document.getElementById('fx-reverb-time').addEventListener('input', (e) => {
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      this.selectedStation.fx.reverbTime = e.target.value / 10;
+      document.getElementById('fx-reverb-time-val').textContent = this.selectedStation.fx.reverbTime.toFixed(1) + 's';
+    });
+
+    document.getElementById('fx-reverb-decay').addEventListener('input', (e) => {
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      this.selectedStation.fx.reverbDecay = e.target.value / 10;
+      document.getElementById('fx-reverb-decay-val').textContent = this.selectedStation.fx.reverbDecay.toFixed(1) + 's';
+    });
+
+    document.getElementById('fx-reverb-wet').addEventListener('input', (e) => {
+      if (!this.selectedStation || this._isSelectedStationLocked()) return;
+      this.selectedStation.fx.reverbWet = e.target.value / 100;
+      document.getElementById('fx-reverb-wet-val').textContent = this.selectedStation.fx.reverbWet.toFixed(2);
+    });
+
     document.getElementById('fx-filter-freq').addEventListener('input', (e) => {
       if (!this.selectedStation || this._isSelectedStationLocked()) return;
       this.selectedStation.fx.filterFreq = this._sliderToFreq(e.target.value);
@@ -1693,6 +1756,12 @@ class App {
         customAudioStatus.textContent = 'Audio cargado ✓';
         customAudioStatus.style.color = 'var(--color-success)';
         setTimeout(() => customAudioStatus.textContent = '', 3000);
+        
+        // Refresh UI
+        if (this.selectedStation && this.selectedStation.id === this.selectedStation.id) {
+          this._updateStationPanel(this.selectedStation);
+          this.trimEditor.loadStation(this.selectedStation);
+        }
       } catch (err) {
         console.error("Error decoding custom audio", err);
         customAudioStatus.textContent = 'Error al cargar';
@@ -1736,6 +1805,12 @@ class App {
               customAudioStatus.textContent = 'Audio grabado ✓';
               customAudioStatus.style.color = 'var(--color-success)';
               setTimeout(() => customAudioStatus.textContent = '', 3000);
+              
+              // Refresh UI
+              if (this.selectedStation && this.selectedStation.id === this.selectedStation.id) {
+                this._updateStationPanel(this.selectedStation);
+                this.trimEditor.loadStation(this.selectedStation);
+              }
             } catch (err) {
               console.error('Error decoding recording', err);
               customAudioStatus.textContent = 'Error al grabar';
@@ -1870,6 +1945,49 @@ class App {
       this._closePanel();
     });
 
+    // === Drone FX Controls ===
+    document.getElementById('train-delay-time').addEventListener('input', (e) => {
+      if (!this.selectedTrain) return;
+      this.selectedTrain.droneDelayTime = e.target.value / 100;
+      document.getElementById('train-delay-time-val').textContent = this.selectedTrain.droneDelayTime.toFixed(2) + 's';
+      this._renderTrainControls();
+    });
+
+    document.getElementById('train-delay-feedback').addEventListener('input', (e) => {
+      if (!this.selectedTrain) return;
+      this.selectedTrain.droneDelayFeedback = e.target.value / 100;
+      document.getElementById('train-delay-feedback-val').textContent = this.selectedTrain.droneDelayFeedback.toFixed(1);
+      this._renderTrainControls();
+    });
+
+    document.getElementById('train-delay-wet').addEventListener('input', (e) => {
+      if (!this.selectedTrain) return;
+      this.selectedTrain.droneDelayWet = e.target.value / 100;
+      document.getElementById('train-delay-wet-val').textContent = this.selectedTrain.droneDelayWet.toFixed(1);
+      this._renderTrainControls();
+    });
+
+    document.getElementById('train-reverb-time').addEventListener('input', (e) => {
+      if (!this.selectedTrain) return;
+      this.selectedTrain.droneReverbTime = parseInt(e.target.value, 10);
+      document.getElementById('train-reverb-time-val').textContent = (this.selectedTrain.droneReverbTime / 10).toFixed(1) + 's';
+      this._renderTrainControls();
+    });
+
+    document.getElementById('train-reverb-decay').addEventListener('input', (e) => {
+      if (!this.selectedTrain) return;
+      this.selectedTrain.droneReverbDecay = parseInt(e.target.value, 10);
+      document.getElementById('train-reverb-decay-val').textContent = (this.selectedTrain.droneReverbDecay / 10).toFixed(1) + 's';
+      this._renderTrainControls();
+    });
+
+    document.getElementById('train-reverb-wet').addEventListener('input', (e) => {
+      if (!this.selectedTrain) return;
+      this.selectedTrain.droneReverbWet = e.target.value / 100;
+      document.getElementById('train-reverb-wet-val').textContent = this.selectedTrain.droneReverbWet.toFixed(2);
+      this._renderTrainControls();
+    });
+
     // === Master controls ===
     const masterVol = document.getElementById('master-vol');
     const masterVolValue = document.getElementById('master-vol-value');
@@ -1986,6 +2104,13 @@ class App {
       const ok = this._saveCityById(this.currentCreatorCityId, this.currentCreatorCityName);
       this._showCreatorStatus(ok ? `Ciudad guardada: ${this.currentCreatorCityName}` : 'No se pudo guardar ciudad', ok ? 'ok' : 'error');
     });
+
+    const btnExitLobby = document.getElementById('btn-exit-to-lobby');
+    if (btnExitLobby) {
+      btnExitLobby.addEventListener('click', () => {
+        location.reload();
+      });
+    }
 
     document.getElementById('creator-city-load').addEventListener('click', async () => {
       const cityId = citySelect?.value;

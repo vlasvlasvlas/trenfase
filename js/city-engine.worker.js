@@ -23,7 +23,7 @@ const AGENT_TYPE = {
   CAR: 1,
 };
 
-const MAX_AGENTS = 320;
+const MAX_AGENTS = 800; // Increased for larger cities (was 320)
 
 const GROWTH_PROFILES = {
   slow: {
@@ -259,9 +259,10 @@ function buildParcels(stationList) {
     const strain = Math.max(0, population / 1000 - decayThreshold);
     const resilience = clamp(1 - strain * 1.4, 0.2, 1);
 
+    // Give a much higher cap to block count for huge cities
     const blockCount = Math.max(
       1,
-      Math.min(7, Math.round((0.6 + vitality * 2.6 + population / 520) * resilience * profile.parcelBlockScale)),
+      Math.min(18, Math.round((0.6 + vitality * 4.0 + population / 250) * resilience * profile.parcelBlockScale)),
     );
 
     for (let b = 0; b < blockCount; b++) {
@@ -372,10 +373,12 @@ function buildStationAttractors(station) {
   const saturation = population / 1000;
   const strain = Math.max(0, saturation - decayThreshold);
   const resilience = clamp(1 - strain * 1.4, 0.25, 1);
-  const spread = (55 + vitality * 185) * (0.82 + resilience * 0.28) * profile.attractorSpreadScale;
+  const spread = (55 + vitality * 250) * (0.82 + resilience * 0.28) * profile.attractorSpreadScale;
+  
+  // Significantly increased attractor count
   const count = Math.max(
     10,
-    Math.min(48, Math.round((10 + vitality * 14 + population * 0.018) * (0.72 + resilience * 0.58) * profile.attractorCountScale)),
+    Math.min(150, Math.round((20 + vitality * 40 + population * 0.05) * (0.72 + resilience * 0.58) * profile.attractorCountScale)),
   );
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -398,10 +401,12 @@ function growClusterForStation(station, rootNodeId) {
   const population = clamp(Number(station.population ?? 0), 0, 1000);
   const popNorm = population / 1000;
 
-  const influenceRadius = 88 + vitality * 42 + popNorm * 18;
+  const influenceRadius = 120 + vitality * 80 + popNorm * 40;
   const killRadius = 10 + vitality * 2;
   const stepSize = 9.5 + vitality * 3;
-  const iterations = Math.round(22 + vitality * 14 + popNorm * 10);
+  
+  // Significantly increased iteration cap for larger networks
+  const iterations = Math.round(40 + vitality * 40 + popNorm * 30);
 
   for (let iter = 0; iter < iterations; iter++) {
     if (localAttractors.length === 0) break;
@@ -707,7 +712,7 @@ function rebuildAgents(stationList) {
     const saturation = population / 1000;
     const strain = Math.max(0, saturation - decayThreshold);
     const resilience = clamp(1 - strain * 1.3, 0.2, 1);
-    const spawnCount = Math.max(10, Math.min(70, Math.round((10 + vitality * 16 + population * 0.04) * resilience)));
+    const spawnCount = Math.max(10, Math.min(180, Math.round((20 + vitality * 40 + population * 0.1) * resilience)));
 
     for (let i = 0; i < spawnCount && slot < MAX_AGENTS; i++) {
       const isCar = (i % 3 === 0);

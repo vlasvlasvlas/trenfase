@@ -25,6 +25,14 @@ class Train {
     this.soundRate = 1.0;
     this.soundTone = 0.5;
     
+    // Train drone FX
+    this.droneDelayTime = 0;
+    this.droneDelayFeedback = 0;
+    this.droneDelayWet = 0;
+    this.droneReverbTime = 30; // 3.0s UI mapped
+    this.droneReverbDecay = 30; // 3.0s UI mapped
+    this.droneReverbWet = 0;
+    
     this.triggeredStations = new Set(); // avoid re-triggering same station
     this.triggerThreshold = 4; // degrees proximity to trigger
     
