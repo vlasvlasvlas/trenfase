@@ -64,6 +64,20 @@ class AudioEngine {
     this._setupCityAudio();
   }
 
+  _createReverbBuffer(time = 3.0, decay = 3.0) {
+    if (!this.ctx) return null;
+    const length = this.ctx.sampleRate * time;
+    const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
+    
+    for (let i = 0; i < 2; i++) {
+        const channel = impulse.getChannelData(i);
+        for (let j = 0; j < length; j++) {
+            channel[j] = (Math.random() * 2 - 1) * Math.pow(1 - j / length, decay);
+        }
+    }
+    return impulse;
+  }
+
   _createNoiseBuffer(seconds = 1.0) {
     const length = Math.max(1, Math.floor(this.ctx.sampleRate * seconds));
     const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
@@ -340,6 +354,12 @@ class AudioEngine {
     const delayWet = this.ctx.createGain();
     delayWet.gain.value = fx.delayWet || 0;
 
+    // 4. Reverb
+    const reverbNode = this.ctx.createConvolver();
+    reverbNode.buffer = this._createReverbBuffer(fx.reverbTime || 3.0, fx.reverbDecay || 3.0);
+    const reverbWet = this.ctx.createGain();
+    reverbWet.gain.value = fx.reverbWet || 0;
+
     // Connect FX chain
     source.connect(gainNode);
     gainNode.connect(filterNode);
@@ -353,7 +373,19 @@ class AudioEngine {
     delayNode.connect(delayFeedback);
     delayFeedback.connect(delayNode); // feedback loop
     delayNode.connect(delayWet);
+    
+    // Send delay wet and filter dry to reverb
+    const preReverb = this.ctx.createGain();
+    preReverb.gain.value = 1;
+    delayWet.connect(preReverb);
+    filterNode.connect(preReverb);
+    
+    preReverb.connect(reverbNode);
+    reverbNode.connect(reverbWet);
+    
+    // Output effects to master
     delayWet.connect(this.masterBus);
+    reverbWet.connect(this.masterBus);
 
     // Calculate trim
     const duration = buffer.duration;
@@ -376,7 +408,8 @@ class AudioEngine {
 
     this.activeSources.set(station.id, {
       source, gain: gainNode, filter: filterNode,
-      delay: delayNode, delayFeedback, delayDry, delayWet
+      delay: delayNode, delayFeedback, delayDry, delayWet,
+      reverb: reverbNode, reverbWet
     });
     return source;
   }
@@ -393,6 +426,8 @@ class AudioEngine {
         active.delayFeedback.disconnect();
         active.delayDry.disconnect();
         active.delayWet.disconnect();
+        if (active.reverb) active.reverb.disconnect();
+        if (active.reverbWet) active.reverbWet.disconnect();
       } catch (e) {}
       this.activeSources.delete(stationId);
     }
@@ -448,7 +483,42 @@ class AudioEngine {
     oscGain2.connect(droneFilter);
     subGain.connect(droneFilter);
 
-    droneFilter.connect(droneGain);
+    // Drone FX Chain: Filter -> Delay -> Reverb -> Gain -> MasterBus
+    
+    // DELAY
+    const droneDelay = this.ctx.createDelay(5.0);
+    const droneDelayFeedback = this.ctx.createGain();
+    const droneDelayDry = this.ctx.createGain();
+    droneDelayDry.gain.value = 1;
+    const droneDelayWet = this.ctx.createGain();
+    droneDelayWet.gain.value = 0;
+    
+    // REVERB
+    const droneReverb = this.ctx.createConvolver();
+    droneReverb.buffer = this._createReverbBuffer(3.0, 3.0);
+    const droneReverbWet = this.ctx.createGain();
+    droneReverbWet.gain.value = 0;
+    
+    // Connectivity
+    droneFilter.connect(droneDelayDry);
+    droneDelayDry.connect(droneGain);
+    
+    droneFilter.connect(droneDelay);
+    droneDelay.connect(droneDelayFeedback);
+    droneDelayFeedback.connect(droneDelay); // feedback loop
+    droneDelay.connect(droneDelayWet);
+    
+    const preReverb = this.ctx.createGain();
+    preReverb.gain.value = 1;
+    droneDelayWet.connect(preReverb);
+    droneFilter.connect(preReverb);
+    
+    preReverb.connect(droneReverb);
+    droneReverb.connect(droneReverbWet);
+    
+    droneDelayWet.connect(droneGain);
+    droneReverbWet.connect(droneGain);
+
     droneGain.connect(this.masterBus);
 
     osc1.start();
@@ -469,6 +539,12 @@ class AudioEngine {
       gainNode: droneGain,
       filterNode: droneFilter,
       osc1, osc2, subOsc, lfoOsc, lfoGain,
+      delay: droneDelay,
+      delayFeedback: droneDelayFeedback,
+      delayDry: droneDelayDry,
+      delayWet: droneDelayWet,
+      reverb: droneReverb,
+      reverbWet: droneReverbWet,
       isRunning: false
     };
 
@@ -529,6 +605,23 @@ class AudioEngine {
     const lfoDepth = train.soundVolume * 0.4; // tremolo depth as fraction of volume
     drone.lfoGain.gain.cancelScheduledValues(this.ctx.currentTime);
     drone.lfoGain.gain.setTargetAtTime(lfoDepth, this.ctx.currentTime, 0.1);
+
+    // Apply FX Params
+    drone.delay.delayTime.setTargetAtTime(train.droneDelayTime || 0, this.ctx.currentTime, 0.1);
+    drone.delayFeedback.gain.setTargetAtTime(train.droneDelayFeedback || 0, this.ctx.currentTime, 0.1);
+    drone.delayWet.gain.setTargetAtTime(train.droneDelayWet || 0, this.ctx.currentTime, 0.1);
+    
+    // Dynamic Reverb Buffer (only recreate if values change significantly)
+    const revTimeTarget = train.droneReverbTime != null ? train.droneReverbTime / 10 : 3.0;
+    const revDecayTarget = train.droneReverbDecay != null ? train.droneReverbDecay / 10 : 3.0;
+    
+    if (drone.reverb._lastTime !== revTimeTarget || drone.reverb._lastDecay !== revDecayTarget) {
+       drone.reverb.buffer = this._createReverbBuffer(revTimeTarget, revDecayTarget);
+       drone.reverb._lastTime = revTimeTarget;
+       drone.reverb._lastDecay = revDecayTarget;
+    }
+    
+    drone.reverbWet.gain.setTargetAtTime(train.droneReverbWet || 0, this.ctx.currentTime, 0.1);
   }
 
   removeTrainDrone(trainId) {
@@ -544,6 +637,12 @@ class AudioEngine {
         try { drone.lfoGain.disconnect(); } catch (e) {}
         try { drone.filterNode.disconnect(); } catch (e) {}
         try { drone.gainNode.disconnect(); } catch (e) {}
+        try { drone.delay.disconnect(); } catch (e) {}
+        try { drone.delayFeedback.disconnect(); } catch (e) {}
+        try { drone.delayDry.disconnect(); } catch (e) {}
+        try { drone.delayWet.disconnect(); } catch (e) {}
+        try { drone.reverb.disconnect(); } catch (e) {}
+        try { drone.reverbWet.disconnect(); } catch (e) {}
         this.trainDrones.delete(trainId);
       }, 500);
     }
